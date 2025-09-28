@@ -1,0 +1,60 @@
+[
+  {
+    "key": "NEXT_PUBLIC_SUPABASE_URL",
+    "value": "https://ywcqtmzqsvcobtetunuf.supabase.co",
+    "target": ["production", "preview", "development"]
+  },
+  {
+    "key": "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl3Y3F0bXpxc3Zjb2J0ZXR1bnVmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc3NzczODQsImV4cCI6MjA3MzM1MzM4NH0.If0DHxcnnQOwDlAMe4Q4ME3XXYESEuTNpEWwaOIsdpI",
+    "target": ["production", "preview", "development"]
+  },
+  {
+    "key": "SUPABASE_SERVICE_ROLE_KEY",
+    "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl3Y3F0bXpxc3Zjb2J0ZXR1bnVmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1Nzc3NzM4NCwiZXhwIjoyMDczMzUzMzg0fQ.fUj0lqp_NApqfrpN38ydEqE08Hh2WwL-BoVPqdjp3ac",
+    "target": ["production", "preview", "development"]
+  },
+  {
+    "key": "NEXT_PUBLIC_APP_URL",
+    "value": "https://your-app-name.vercel.app",
+    "target": ["production"],
+    "comment": "Replace 'your-app-name' with your actual Vercel app domain"
+  },
+  {
+    "key": "NEXT_PUBLIC_APP_URL",
+    "value": "http://localhost:3000",
+    "target": ["development"]
+  },
+  {
+    "key": "NEXTAUTH_URL",
+    "value": "https://your-app-name.vercel.app",
+    "target": ["production"],
+    "comment": "Replace 'your-app-name' with your actual Vercel app domain"
+  },
+  {
+    "key": "NEXTAUTH_URL",
+    "value": "http://localhost:3000",
+    "target": ["development"]
+  },
+  {
+    "key": "NEXTAUTH_SECRET",
+    "value": "your-nextauth-secret-key-change-this-in-production",
+    "target": ["production", "preview", "development"],
+    "comment": "Generate a secure random string for production"
+  },
+  {
+    "key": "NEXT_PUBLIC_MAX_FILE_SIZE",
+    "value": "10485760",
+    "target": ["production", "preview", "development"]
+  },
+  {
+    "key": "NODE_ENV",
+    "value": "production",
+    "target": ["production"]
+  },
+  {
+    "key": "NODE_ENV",
+    "value": "development",
+    "target": ["development"]
+  }
+]
