@@ -1,0 +1,1 @@
+echo "Test PDF content for upload debugging" > /tmp/test-debug.pdf

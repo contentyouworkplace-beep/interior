@@ -1,0 +1,775 @@
+"use client"
+
+import { useEffect, useState } from "react"
+import { DashboardLayout } from "@/components/dashboard-layout"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Progress } from "@/components/ui/progress"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Calendar } from "@/components/ui/calendar"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Users, FileText, IndianRupee, Receipt, Plus, User, Calendar as CalendarIcon, Clock, Activity, CheckCircle2, ChevronLeft, ChevronRight } from "lucide-react"
+import { formatINR } from "@/lib/utils"
+import { format } from "date-fns"
+                    }}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="flex-1 justify-start text-left font-normal">
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {selectedDate ? format(selectedDate, "PPP") : <span>Pick a date</span>}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={selectedDate}
+                        onSelect={(date) => date && setSelectedDate(date)}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                  
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => {
+                      const nextDay = new Date(selectedDate)
+                      nextDay.setDate(nextDay.getDate() + 1)
+                      setSelectedDate(nextDay)
+                    }}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>{ Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Calendar } from "@/components/ui/calendar"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Users, FileText, IndianRupee, Receipt, Plus, User, Calendar as CalendarIcon, Clock, Activity, CheckCircle2, ChevronLeft, ChevronRight } from "lucide-react"
+import { formatINR } from "@/lib/utils"
+import { format } from "date-fns"
+
+interface DashboardMetrics {
+  totalClients: number
+  quotationsSent: number
+  pendingPayments: number
+  expensesThisMonth: number
+}
+
+interface Project {
+  id: number
+  name: string
+  client: string
+  status: "In Progress" | "Planning" | "Review" | "Completed"
+  progress: number
+  deadline: string
+  priority: "high" | "medium" | "low"
+  updatedAt: string
+}
+
+interface Task {
+  id: string
+  title: string
+  time: string
+  client?: string
+  completed: boolean
+  type: "meeting" | "deadline" | "personal" | "call"
+}
+
+export default function DashboardPage() {
+  const [loadingMetrics, setLoadingMetrics] = useState(true)
+  const [metricsError, setMetricsError] = useState<string | null>(null)
+  const [metrics, setMetrics] = useState<DashboardMetrics>({
+    totalClients: 0,
+    quotationsSent: 0,
+    pendingPayments: 0,
+    expensesThisMonth: 0
+  })
+  const [loadingProjects, setLoadingProjects] = useState(true)
+  const [recentProjects, setRecentProjects] = useState<Project[]>([])
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date())
+  const [loadingTasks, setLoadingTasks] = useState(true)
+  const [tasks, setTasks] = useState<Task[]>([])
+
+  useEffect(() => {
+    async function loadMetrics() {
+      try {
+        setLoadingMetrics(true)
+        setMetricsError(null)
+        
+        // Fetch real dashboard metrics from API
+        const response = await fetch('/api/dashboard/metrics')
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch dashboard metrics')
+        }
+        
+        const data = await response.json()
+        
+        if (data.success) {
+          setMetrics({
+            totalClients: data.totalClients,
+            quotationsSent: data.quotationsSent,
+            pendingPayments: data.pendingPayments,
+            expensesThisMonth: data.expensesThisMonth
+          })
+        } else {
+          throw new Error(data.error || 'Failed to load metrics')
+        }
+      } catch (error) {
+        console.error('Error loading dashboard metrics:', error)
+        setMetricsError('Failed to load dashboard metrics')
+        // Fallback to mock data for development
+        setMetrics({
+          totalClients: 0,
+          quotationsSent: 0,
+          pendingPayments: 0,
+          expensesThisMonth: 0
+        })
+      } finally {
+        setLoadingMetrics(false)
+      }
+    }
+    
+    loadMetrics()
+  }, [])
+
+  // Load recent projects
+  useEffect(() => {
+    async function loadProjects() {
+      try {
+        setLoadingProjects(true)
+        const response = await fetch('/api/projects/recent')
+        
+        if (response.ok) {
+          const data = await response.json()
+          if (data.success) {
+            setRecentProjects(data.projects)
+          }
+        }
+      } catch (error) {
+        console.error('Error loading recent projects:', error)
+      } finally {
+        setLoadingProjects(false)
+      }
+    }
+    
+    loadProjects()
+  }, [])
+
+  // Load tasks for selected date
+  useEffect(() => {
+    async function loadTasks() {
+      try {
+        setLoadingTasks(true)
+        const dateStr = selectedDate.toISOString().split('T')[0]
+        const response = await fetch(`/api/tasks?date=${dateStr}`)
+        
+        if (response.ok) {
+          const data = await response.json()
+          if (data.success) {
+            setTasks(data.tasks)
+          }
+        }
+      } catch (error) {
+        console.error('Error loading tasks:', error)
+      } finally {
+        setLoadingTasks(false)
+      }
+    }
+    
+    loadTasks()
+  }, [selectedDate])
+
+  // Mock recent projects - sorted by latest
+  const mockProjects: Project[] = [
+    {
+      id: 1,
+      name: "Modern Villa Renovation - Bandra",
+      client: "Priya Sharma",
+      status: "In Progress",
+      progress: 75,
+      deadline: "2024-10-15",
+      priority: "high",
+      updatedAt: "2024-09-14"
+    },
+    {
+      id: 2,
+      name: "Corporate Office Design - BKC",
+      client: "Tech Solutions Pvt Ltd",
+      status: "Planning",
+      progress: 30,
+      deadline: "2024-11-20",
+      priority: "medium",
+      updatedAt: "2024-09-13"
+    },
+    {
+      id: 3,
+      name: "Luxury Apartment - Juhu",
+      client: "Rahul Mehta",
+      status: "Review",
+      progress: 95,
+      deadline: "2024-09-25",
+      priority: "high",
+      updatedAt: "2024-09-12"
+    }
+  ]
+
+  const toggleTask = async (taskId: string) => {
+    try {
+      // Find the task to get its current completion status
+      const task = tasks.find(t => t.id === taskId)
+      if (!task) return
+
+      // Update UI immediately for responsiveness
+      setTasks(tasks.map(t => 
+        t.id === taskId ? { ...t, completed: !t.completed } : t
+      ))
+
+      // Send update to API
+      const response = await fetch(`/api/tasks/${taskId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          completed: !task.completed
+        })
+      })
+
+      if (!response.ok) {
+        // Revert the UI change if API call failed
+        setTasks(tasks.map(t => 
+          t.id === taskId ? { ...t, completed: task.completed } : t
+        ))
+        console.error('Failed to update task')
+      }
+    } catch (error) {
+      // Revert the UI change if there was an error
+      const task = tasks.find(t => t.id === taskId)
+      if (task) {
+        setTasks(tasks.map(t => 
+          t.id === taskId ? { ...t, completed: task.completed } : t
+        ))
+      }
+      console.error('Error updating task:', error)
+    }
+  }
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "In Progress":
+        return "bg-blue-100 text-blue-800 border-blue-200"
+      case "Planning":
+        return "bg-yellow-100 text-yellow-800 border-yellow-200"
+      case "Review":
+        return "bg-purple-100 text-purple-800 border-purple-200"
+      case "Completed":
+        return "bg-green-100 text-green-800 border-green-200"
+      default:
+        return "bg-gray-100 text-gray-800 border-gray-200"
+    }
+  }
+
+  const getPriorityColor = (priority: string) => {
+    switch (priority) {
+      case "high":
+        return "border-l-red-500"
+      case "medium":
+        return "border-l-yellow-500"
+      case "low":
+        return "border-l-green-500"
+      default:
+        return "border-l-gray-300"
+    }
+  }
+
+  const getTaskIcon = (type: string) => {
+    switch (type) {
+      case "meeting":
+        return "👥"
+      case "deadline":
+        return "📋"
+      case "call":
+        return "📞"
+      default:
+        return "📝"
+    }
+  }
+  return (
+    <DashboardLayout
+      title="Dashboard"
+      subtitle="Welcome back! Here's what's happening with your projects today."
+      currentPath="/dashboard"
+    >
+      {/* Main Dashboard Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-4 sm:mb-6">
+        {loadingMetrics ? (
+          Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i} className="border-border/50">
+              <CardContent className="p-4 sm:p-6">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-20 sm:w-24" />
+                    <Skeleton className="h-6 sm:h-8 w-24 sm:w-32" />
+                  </div>
+                  <Skeleton className="h-10 w-10 sm:h-12 sm:w-12 rounded-full" />
+                </div>
+              </CardContent>
+            </Card>
+          ))
+        ) : metricsError ? (
+          <Card className="sm:col-span-2 lg:col-span-4 border-red-400/40">
+            <CardContent className="p-4 sm:p-6">
+              <p className="text-sm text-red-500 font-medium">{metricsError}</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            {/* Clients Card */}
+            <Card className="border-border/50 hover:shadow-md transition-shadow">
+              <CardContent className="p-4 sm:p-6">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1 sm:space-y-2">
+                    <p className="text-xs sm:text-sm font-medium text-muted-foreground">Clients</p>
+                    <p className="text-lg sm:text-xl font-bold text-foreground">{metrics.totalClients}</p>
+                    <p className="text-xs text-muted-foreground">Total active clients</p>
+                  </div>
+                  <div className="p-2 sm:p-3 rounded-full bg-blue-100">
+                    <Users className="h-5 w-5 sm:h-6 sm:w-6 text-blue-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Quotations Sent Card */}
+            <Card className="border-border/50 hover:shadow-md transition-shadow">
+              <CardContent className="p-4 sm:p-6">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1 sm:space-y-2">
+                    <p className="text-xs sm:text-sm font-medium text-muted-foreground">Quotations Sent</p>
+                    <p className="text-lg sm:text-xl font-bold text-foreground">{metrics.quotationsSent}</p>
+                    <p className="text-xs text-muted-foreground">This month</p>
+                  </div>
+                  <div className="p-2 sm:p-3 rounded-full bg-green-100">
+                    <FileText className="h-5 w-5 sm:h-6 sm:w-6 text-green-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Pending Payments Card */}
+            <Card className="border-border/50 hover:shadow-md transition-shadow">
+              <CardContent className="p-4 sm:p-6">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1 sm:space-y-2">
+                    <p className="text-xs sm:text-sm font-medium text-muted-foreground">Pending Payments</p>
+                    <p className="text-lg sm:text-xl font-bold text-foreground">{formatINR(metrics.pendingPayments)}</p>
+                    <p className="text-xs text-muted-foreground">Outstanding amount</p>
+                  </div>
+                  <div className="p-2 sm:p-3 rounded-full bg-orange-100">
+                    <IndianRupee className="h-5 w-5 sm:h-6 sm:w-6 text-orange-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Expenses This Month Card */}
+            <Card className="border-border/50 hover:shadow-md transition-shadow">
+              <CardContent className="p-4 sm:p-6">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1 sm:space-y-2">
+                    <p className="text-xs sm:text-sm font-medium text-muted-foreground">Expenses This Month</p>
+                    <p className="text-lg sm:text-xl font-bold text-foreground">{formatINR(metrics.expensesThisMonth)}</p>
+                    <p className="text-xs text-muted-foreground">Current month total</p>
+                  </div>
+                  <div className="p-2 sm:p-3 rounded-full bg-red-100">
+                    <Receipt className="h-5 w-5 sm:h-6 sm:w-6 text-red-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 sm:gap-8">
+        {/* Recent Projects - Takes 2 columns on xl screens, full width on smaller */}
+        <div className="xl:col-span-2">
+          <Card className="border-border/50">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Recent Projects</CardTitle>
+                  <CardDescription>Latest projects sorted by most recent activity</CardDescription>
+                </div>
+                <Button variant="outline" size="sm">
+                  View All
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {loadingProjects ? (
+                  Array.from({ length: 3 }).map((_, i) => (
+                    <div key={i} className="p-3 sm:p-4 border border-border rounded-lg">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1 space-y-2">
+                          <Skeleton className="h-4 w-3/4" />
+                          <Skeleton className="h-3 w-1/2" />
+                          <Skeleton className="h-2 w-full" />
+                        </div>
+                        <Skeleton className="h-6 w-16 rounded-full" />
+                      </div>
+                    </div>
+                  ))
+                ) : recentProjects.length > 0 ? (
+                  recentProjects.map((project) => (
+                  <div
+                    key={project.id}
+                    className={`p-3 sm:p-4 border-l-4 border border-border rounded-lg ${getPriorityColor(project.priority)}`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1 space-y-2">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                          <h4 className="font-medium text-foreground text-sm sm:text-base">{project.name}</h4>
+                          <Badge className={getStatusColor(project.status)}>{project.status}</Badge>
+                        </div>
+                        <p className="text-xs sm:text-sm text-muted-foreground flex items-center">
+                          <User className="h-3 w-3 mr-1 flex-shrink-0" />
+                          {project.client}
+                        </p>
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                          <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-4 space-y-1 sm:space-y-0">
+                            <div className="flex items-center text-xs text-muted-foreground">
+                              <CalendarIcon className="h-3 w-3 mr-1 flex-shrink-0" />
+                              <span>Due: {project.deadline}</span>
+                            </div>
+                            <div className="flex items-center text-xs text-muted-foreground">
+                              <Activity className="h-3 w-3 mr-1 flex-shrink-0" />
+                              <span>Updated: {project.updatedAt}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between sm:text-right">
+                            <div className="text-sm font-medium text-foreground">{project.progress}%</div>
+                            <Progress value={project.progress} className="w-20 sm:w-24 h-2 ml-2" />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <div className="w-16 h-16 mx-auto mb-4 bg-muted rounded-full flex items-center justify-center">
+                      <Activity className="h-8 w-8" />
+                    </div>
+                    <p>No recent projects found</p>
+                    <p className="text-sm">Start by creating your first project</p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Right Column - Today's Schedule & Quick Actions */}
+        <div className="space-y-6">
+          {/* Today's Schedule with Date Picker */}
+          <Card className="border-border/50">
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <CalendarIcon className="h-5 w-5 mr-2" />
+                Today's Schedule
+              </CardTitle>
+              <CardDescription>Your personal tasks and appointments</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {/* Small Date Picker */}
+              <div className="mb-4">
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full justify-start text-left font-normal">
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {selectedDate ? format(selectedDate, "PPP") : <span>Pick a date</span>}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={selectedDate}
+                      onSelect={(date: Date | undefined) => date && setSelectedDate(date)}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+              
+              {/* Task List */}
+              <div className="space-y-3">
+                <h4 className="font-medium text-sm text-muted-foreground mb-3">
+                  Tasks for {selectedDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}
+                </h4>
+                {loadingTasks ? (
+                  Array.from({ length: 3 }).map((_, i) => (
+                    <div key={i} className="flex items-start space-x-3 p-3 border border-border rounded-lg">
+                      <Skeleton className="h-4 w-4 rounded flex-shrink-0 mt-1" />
+                      <div className="flex-1 space-y-2">
+                        <Skeleton className="h-4 w-3/4" />
+                        <Skeleton className="h-3 w-1/2" />
+                      </div>
+                    </div>
+                  ))
+                ) : tasks.length > 0 ? (
+                  tasks.map((task) => (
+                  <div key={task.id} className="flex items-start space-x-3 p-3 border border-border rounded-lg">
+                    <Checkbox
+                      checked={task.completed}
+                      onCheckedChange={() => toggleTask(task.id)}
+                      className="mt-1 flex-shrink-0 border-2 border-gray-400 data-[state=checked]:border-green-600 data-[state=checked]:bg-green-600"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-sm flex-shrink-0">{getTaskIcon(task.type)}</span>
+                        <p className={`text-sm font-medium break-words ${task.completed ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
+                          {task.title}
+                        </p>
+                      </div>
+                      {task.client && (
+                        <p className="text-xs text-muted-foreground mt-1 truncate">{task.client}</p>
+                      )}
+                      <div className="flex items-center mt-1">
+                        <Clock className="h-3 w-3 mr-1 text-muted-foreground flex-shrink-0" />
+                        <span className="text-xs text-muted-foreground">{task.time}</span>
+                      </div>
+                    </div>
+                    {task.completed && (
+                      <CheckCircle2 className="h-4 w-4 text-green-500 mt-1 flex-shrink-0" />
+                    )}
+                  </div>
+                ))
+                ) : (
+                  <div className="text-center py-6 text-muted-foreground">
+                    <Clock className="h-8 w-8 mx-auto mb-2" />
+                    <p className="text-sm">No tasks scheduled for this date</p>
+                  </div>
+                )}
+                
+                {/* Add Task Dialog */}
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <Button variant="outline" className="w-full" size="sm">
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Task
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-[425px] mx-4">
+                    <DialogHeader>
+                      <DialogTitle>Add New Task</DialogTitle>
+                      <DialogDescription>
+                        Create a new task for your schedule.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-4 items-center gap-4">
+                        <Label htmlFor="task-title" className="sm:text-right">
+                          Title
+                        </Label>
+                        <Input
+                          id="task-title"
+                          placeholder="Task title"
+                          className="sm:col-span-3"
+                        />
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-4 items-center gap-4">
+                        <Label htmlFor="task-time" className="sm:text-right">
+                          Time
+                        </Label>
+                        <Input
+                          id="task-time"
+                          type="time"
+                          className="sm:col-span-3"
+                        />
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-4 items-center gap-4">
+                        <Label htmlFor="task-type" className="sm:text-right">
+                          Type
+                        </Label>
+                        <Select>
+                          <SelectTrigger className="sm:col-span-3">
+                            <SelectValue placeholder="Select task type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="meeting">Meeting</SelectItem>
+                            <SelectItem value="deadline">Deadline</SelectItem>
+                            <SelectItem value="call">Call</SelectItem>
+                            <SelectItem value="personal">Personal</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-4 items-center gap-4">
+                        <Label htmlFor="task-client" className="sm:text-right">
+                          Client
+                        </Label>
+                        <Input
+                          id="task-client"
+                          placeholder="Client name (optional)"
+                          className="sm:col-span-3"
+                        />
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button type="submit">Add Task</Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Quick Actions */}
+          <Card className="border-border/50">
+            <CardHeader>
+              <CardTitle>Quick Actions</CardTitle>
+              <CardDescription>Frequently used actions</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {/* New Client Dialog */}
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button className="w-full justify-start" variant="outline">
+                    <Plus className="h-4 w-4 mr-2" />
+                    New Client
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[500px] mx-4">
+                  <DialogHeader>
+                    <DialogTitle>Add New Client</DialogTitle>
+                    <DialogDescription>
+                      Add a new client to your CRM system.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="grid gap-4 py-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="first-name">First Name</Label>
+                        <Input id="first-name" placeholder="John" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="last-name">Last Name</Label>
+                        <Input id="last-name" placeholder="Doe" />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="email">Email</Label>
+                      <Input id="email" type="email" placeholder="john@example.com" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="phone">Phone</Label>
+                      <Input id="phone" placeholder="+91 9876543210" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="company">Company</Label>
+                      <Input id="company" placeholder="Company name (optional)" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="budget">Budget Range</Label>
+                      <Select>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select budget range" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="under-5l">Under ₹5 Lakhs</SelectItem>
+                          <SelectItem value="5-10l">₹5-10 Lakhs</SelectItem>
+                          <SelectItem value="10-25l">₹10-25 Lakhs</SelectItem>
+                          <SelectItem value="25-50l">₹25-50 Lakhs</SelectItem>
+                          <SelectItem value="50l-1cr">₹50 Lakhs - 1 Crore</SelectItem>
+                          <SelectItem value="above-1cr">Above ₹1 Crore</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button type="submit">Add Client</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              {/* New Quote Dialog */}
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button className="w-full justify-start" variant="outline">
+                    <FileText className="h-4 w-4 mr-2" />
+                    New Quote
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[500px] mx-4">
+                  <DialogHeader>
+                    <DialogTitle>Create New Quotation</DialogTitle>
+                    <DialogDescription>
+                      Create a new quotation for a client project.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="grid gap-4 py-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="quote-title">Quotation Title</Label>
+                      <Input id="quote-title" placeholder="Villa Interior Design" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="quote-client">Client</Label>
+                      <Select>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select client" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="client1">Priya Sharma</SelectItem>
+                          <SelectItem value="client2">Tech Solutions Pvt Ltd</SelectItem>
+                          <SelectItem value="client3">Rahul Mehta</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="quote-amount">Amount (₹)</Label>
+                        <Input id="quote-amount" type="number" placeholder="500000" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="quote-validity">Valid Until</Label>
+                        <Input id="quote-validity" type="date" />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="quote-description">Description</Label>
+                      <Textarea 
+                        id="quote-description" 
+                        placeholder="Brief description of the quotation..."
+                        rows={3}
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button type="submit">Create Quotation</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </DashboardLayout>
+  )
+}

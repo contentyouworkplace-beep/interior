@@ -1,0 +1,394 @@
+"use client"
+
+import { useState, useEffect } from "react"
+import { DashboardLayout } from "@/components/dashboard-layout"
+import { Card, CardContent } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { Filter, Plus, Search } from "lucide-react"
+import { AddProjectDialog } from "@/components/add-project-dialog"
+import { ProjectKanban } from "@/components/project-kanban"
+import { ProjectCard } from "@/components/project-card"
+import { createClient } from "@/lib/supabase/client"
+import { toast } from "@/hooks/use-toast"
+
+type Project = {
+  id: string
+  user_id: string
+  client_id: string
+  name: string
+  description: string | null
+  project_type: string
+  status: string
+  priority: string
+  budget: number | null
+  start_date: string | null
+  end_date: string | null
+  completion_percentage: number
+  location: string | null
+  square_footage: number | null
+  style_preference: string | null
+  special_requirements: string | null
+  created_at: string
+  updated_at: string
+  clients?: {
+    id: string
+    first_name: string
+    last_name: string
+    email: string
+  }
+}
+
+export default function ProjectsPage() {
+  const [searchQuery, setSearchQuery] = useState("")
+  const [selectedFilter, setSelectedFilter] = useState("all")
+  const [viewMode, setViewMode] = useState("grid")
+  const [projects, setProjects] = useState<Project[]>([])
+  const [projectTasks, setProjectTasks] = useState<Record<string, Task[]>>({})
+  const [timeLogsByTask, setTimeLogsByTask] = useState<Record<string, TaskTimeLog[]>>({})
+  const [teamMembers, setTeamMembers] = useState<Array<{ id: string; name: string; role: string }>>([])
+  const [isLoading, setIsLoading] = useState(true)
+
+  const supabase = createClient()
+
+  const fetchProjects = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data, error } = await supabase
+        .from('projects')
+        .select(`
+          *,
+          clients (
+            id,
+            first_name,
+            last_name,
+            email
+          )
+        `)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        console.error('Error fetching projects:', error)
+        toast({
+          title: "Error",
+          description: "Failed to load projects",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Fetch team members
+      const { data: teamData, error: teamError } = await supabase
+        .from('team_members')
+        .select('id, name, role')
+        .eq('user_id', user.id)
+
+      if (teamError) {
+        console.error('Error fetching team members:', teamError)
+      } else {
+        setTeamMembers(teamData || [])
+      }
+
+      setProjects(data || [])
+
+      // Fetch tasks and time logs for each project
+      if (data) {
+        const tasksByProject: Record<string, Task[]> = {}
+        const timeLogsByTask: Record<string, TaskTimeLog[]> = {}
+        
+        for (const project of data) {
+          // Fetch tasks
+          const { data: tasks } = await supabase
+            .from('project_tasks')
+            .select('*')
+            .eq('project_id', project.id)
+            
+          if (tasks) {
+            tasksByProject[project.id] = tasks
+            
+            // Fetch time logs for each task
+            for (const task of tasks) {
+              const { data: logs } = await supabase
+                .from('task_time_logs')
+                .select('*')
+                .eq('task_id', task.id)
+                
+              if (logs) {
+                timeLogsByTask[task.id] = logs
+              }
+            }
+          }
+        }
+        
+        setProjectTasks(tasksByProject)
+        setTimeLogsByTask(timeLogsByTask)
+      }
+
+      setIsLoading(false)
+    } catch (error) {
+      console.error('Error:', error)
+      toast({
+        title: "Error",
+        description: "Failed to load projects",
+        variant: "destructive",
+      })
+      setIsLoading(false)
+    }
+  }
+
+  const handleProjectDelete = async (projectId: string) => {
+    try {
+      const { error } = await supabase
+        .from('projects')
+        .delete()
+        .eq('id', projectId)
+
+      if (error) throw error
+
+      setProjects(prev => prev.filter(p => p.id !== projectId))
+      toast({
+        title: "Success",
+        description: "Project deleted successfully",
+      })
+    } catch (error) {
+      console.error('Error:', error)
+      toast({
+        title: "Error",
+        description: "Failed to delete project",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleTaskUpdate = async (taskId: string, updates: Partial<Task>) => {
+    try {
+      const { data, error } = await supabase
+        .from('project_tasks')
+        .update(updates)
+        .eq('id', taskId)
+        .select()
+        .single()
+
+      if (error) throw error
+
+      setProjectTasks(prev => {
+        const projectId = data.project_id
+        return {
+          ...prev,
+          [projectId]: prev[projectId].map(task =>
+            task.id === taskId ? { ...task, ...updates } : task
+          )
+        }
+      })
+
+      toast({
+        title: "Success",
+        description: "Task updated successfully"
+      })
+    } catch (error) {
+      console.error('Error:', error)
+      toast({
+        title: "Error",
+        description: "Failed to update task",
+        variant: "destructive"
+      })
+    }
+  }
+
+  const handleTaskCreate = async (taskData: Omit<Task, "id">) => {
+    try {
+      const { data, error } = await supabase
+        .from('project_tasks')
+        .insert(taskData)
+        .select()
+        .single()
+
+      if (error) throw error
+
+      setProjectTasks(prev => ({
+        ...prev,
+        [taskData.project_id]: [...(prev[taskData.project_id] || []), data]
+      }))
+
+      toast({
+        title: "Success",
+        description: "Task created successfully"
+      })
+    } catch (error) {
+      console.error('Error:', error)
+      toast({
+        title: "Error",
+        description: "Failed to create task",
+        variant: "destructive"
+      })
+    }
+  }
+
+  const handleTaskDelete = async (taskId: string) => {
+    try {
+      const task = Object.values(projectTasks)
+        .flat()
+        .find(t => t.id === taskId)
+      
+      if (!task) throw new Error('Task not found')
+
+      const { error } = await supabase
+        .from('project_tasks')
+        .delete()
+        .eq('id', taskId)
+
+      if (error) throw error
+
+      setProjectTasks(prev => ({
+        ...prev,
+        [task.project_id]: prev[task.project_id].filter(t => t.id !== taskId)
+      }))
+
+      toast({
+        title: "Success",
+        description: "Task deleted successfully"
+      })
+    } catch (error) {
+      console.error('Error:', error)
+      toast({
+        title: "Error",
+        description: "Failed to delete task",
+        variant: "destructive"
+      })
+    }
+  }
+
+  useEffect(() => {
+    fetchProjects()
+  }, [])
+
+  const filteredProjects = projects.filter(project => {
+    const matchesSearch = project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         project.clients?.first_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         project.clients?.last_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         project.location?.toLowerCase().includes(searchQuery.toLowerCase()) || false
+    
+    if (selectedFilter === "all") return matchesSearch
+    return matchesSearch && project.status === selectedFilter
+  })
+
+  return (
+    <DashboardLayout
+      title="Project Management"
+      subtitle="Manage your interior design projects and track progress"
+      currentPath="/projects"
+    >
+      {/* Filters and Actions */}
+      <Card className="border-border/50 mb-6">
+        <CardContent className="p-6">
+          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+            <div className="flex flex-col sm:flex-row gap-4 flex-1">
+              <div className="relative flex-1 max-w-sm">
+                <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search projects..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" className="bg-transparent">
+                    <Filter className="h-4 w-4 mr-2" />
+                    Filter: {selectedFilter === "all" ? "All" : selectedFilter}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  <DropdownMenuItem onClick={() => setSelectedFilter("all")}>All Projects</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setSelectedFilter("planning")}>Planning</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setSelectedFilter("in-progress")}>In Progress</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setSelectedFilter("review")}>Review</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setSelectedFilter("completed")}>Completed</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+
+            <AddProjectDialog>
+              <Button>
+                <Plus className="h-4 w-4 mr-2" />
+                New Project
+              </Button>
+            </AddProjectDialog>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* View Tabs */}
+      <Tabs value={viewMode} onValueChange={setViewMode} className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="grid">Grid View</TabsTrigger>
+          <TabsTrigger value="kanban">Kanban Board</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="grid" className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {filteredProjects.map((project) => (
+              <ProjectCard
+                key={project.id}
+                project={project}
+                tasks={projectTasks[project.id] || []}
+                timeLogs={timeLogsByTask}
+                teamMembers={teamMembers}
+                onProjectDelete={handleProjectDelete}
+                onTaskUpdate={handleTaskUpdate}
+                onTaskCreate={handleTaskCreate}
+                onTaskDelete={handleTaskDelete}
+              />
+            ))}
+          </div>
+
+          {filteredProjects.length === 0 && (
+            <Card className="border-border/50">
+              <CardContent className="flex flex-col items-center justify-center p-6 text-center">
+                <p className="text-muted-foreground mb-4">No projects found</p>
+                <AddProjectDialog>
+                  <Button>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Create New Project
+                  </Button>
+                </AddProjectDialog>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="kanban" className="m-0">
+          <ProjectKanban
+            projects={filteredProjects.map(project => ({
+              id: project.id as any,
+              name: project.name,
+              client: `${project.clients?.first_name} ${project.clients?.last_name}`,
+              clientAvatar: "/placeholder-user.jpg",
+              status: project.status,
+              priority: project.priority,
+              progress: project.completion_percentage,
+              budget: `AED ${project.budget?.toLocaleString() || 'N/A'}`,
+              spent: "AED 0",
+              startDate: project.start_date?.toString() || "",
+              endDate: project.end_date?.toString() || "",
+              location: project.location || "",
+              description: project.description || "",
+              team: teamMembers
+                .filter(member => projectTasks[project.id]?.some(task => task.assigned_to === member.id))
+                .map(member => member.name),
+              tasks: projectTasks[project.id]?.length || 0,
+              completedTasks: projectTasks[project.id]?.filter(task => task.status === "completed").length || 0,
+            }))}
+          />
+        </TabsContent>
+      </Tabs>
+    </DashboardLayout>
+  )
+}

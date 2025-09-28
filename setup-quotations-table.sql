@@ -1,0 +1,25 @@
+-- Create the quotations table if it doesn't exist
+CREATE TABLE IF NOT EXISTS quotations (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) NOT NULL,
+  client_id UUID REFERENCES clients(id) NOT NULL,
+  project_id UUID REFERENCES projects(id),
+  quotation_number TEXT UNIQUE NOT NULL,
+  title TEXT NOT NULL,
+  status TEXT DEFAULT 'draft',
+  issue_date DATE NOT NULL,
+  valid_until DATE NOT NULL,
+  subtotal DECIMAL(12,2) NOT NULL DEFAULT 0,
+  gst_type TEXT DEFAULT 'cgst_sgst',
+  tax_rate DECIMAL(5,2) DEFAULT 18.0,
+  tax_amount DECIMAL(12,2) DEFAULT 0,
+  discount_amount DECIMAL(12,2) DEFAULT 0,
+  total_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+  currency TEXT DEFAULT 'INR',
+  notes TEXT,
+  terms_conditions TEXT,
+  template TEXT DEFAULT 'standard',
+  items JSONB DEFAULT '[]',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
