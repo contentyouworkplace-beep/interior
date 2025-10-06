@@ -1,7 +1,5 @@
-import { createClient } from '@supabase/supabase-js'
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+import { createClient as createBrowserClient } from '@/lib/supabase/client'
+import { SupabaseClient } from '@supabase/supabase-js'
 
 export interface Invoice {
   id: string
@@ -22,6 +20,7 @@ export interface Invoice {
   currency: string
   notes?: string
   payment_terms?: string
+  terms?: string
   template?: string
   created_at: string
   updated_at: string
@@ -49,10 +48,9 @@ export interface InvoiceItem {
   quantity: number
   unit_price: number
   amount: number
-  hsn_sac_code?: string
-  tax_rate: number
-  tax_amount: number
   item_order: number
+  discount_rate?: number
+  total?: number // DB column name (for compatibility)
 }
 
 export interface InvoiceAttachment {
@@ -64,6 +62,29 @@ export interface InvoiceAttachment {
   file_size: number
   uploaded_by: string
   created_at: string
+}
+
+export interface CreateInvoiceData {
+  client_id: string
+  project_id?: string
+  title: string
+  issue_date: string
+  due_date: string
+  subtotal: number
+  tax_rate: number
+  tax_amount: number
+  total_amount: number
+  discount_amount?: number
+  currency?: string
+  notes?: string
+  payment_terms?: string
+  terms?: string
+  template?: string
+  items: Omit<InvoiceItem, 'id' | 'invoice_id' | 'created_at'>[]
+}
+
+export interface UpdateInvoiceData extends Partial<CreateInvoiceData> {
+  status?: 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled'
 }
 
 export interface EmailTemplate {
@@ -79,18 +100,41 @@ export interface EmailTemplate {
 }
 
 export class InvoiceService {
-  private supabase = createClient(supabaseUrl, supabaseKey)
+  private supabase: SupabaseClient
+
+  constructor() {
+    // Use the proper browser client that handles cookies and sessions
+    this.supabase = createBrowserClient() as SupabaseClient
+  }
 
   async getInvoices(): Promise<{ success: boolean; data?: Invoice[]; error?: string }> {
     try {
+      // Attempt API route first (handles service-key item enrichment & RLS bypass)
+      try {
+        const { data: sessionData } = await this.supabase.auth.getSession()
+        const accessToken = sessionData.session?.access_token
+        const apiRes = await fetch('/api/invoices', {
+          method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {})
+            },
+            credentials: 'include'
+        })
+        if (apiRes.ok) {
+          const json = await apiRes.json()
+          const invoices = json.invoices || []
+          return { success: true, data: invoices }
+        } else {
+          console.warn('InvoiceService.getInvoices: API route failed', apiRes.status)
+        }
+      } catch (apiErr) {
+        console.warn('InvoiceService.getInvoices: API route error, falling back', apiErr)
+      }
+
       const { data, error } = await this.supabase
         .from('invoices')
-        .select(`
-          *,
-          client:clients(id, first_name, last_name, company, email, phone),
-          project:projects(id, name),
-          items:invoice_items(*)
-        `)
+        .select(`\n          *,\n          client:clients(id, first_name, last_name, company, email, phone),\n          project:projects(id, name),\n          items:invoice_items(*)\n        `)
         .order('created_at', { ascending: false })
 
       if (error) throw error
@@ -110,54 +154,112 @@ export class InvoiceService {
 
   async getInvoiceById(id: string): Promise<{ success: boolean; data?: Invoice; error?: string }> {
     try {
-      const { data, error } = await this.supabase
+      // API-first attempt
+      try {
+        const { data: sessionData } = await this.supabase.auth.getSession()
+        const accessToken = sessionData.session?.access_token
+        const apiRes = await fetch(`/api/invoices/${id}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {})
+          },
+          credentials: 'include'
+        })
+        if (apiRes.ok) {
+          const json = await apiRes.json()
+          if (json.success && json.invoice) {
+            return { success: true, data: json.invoice }
+          }
+        } else {
+          console.warn('InvoiceService.getInvoiceById: API route failed', apiRes.status)
+        }
+      } catch (apiErr) {
+        console.warn('InvoiceService.getInvoiceById: API route error, falling back', apiErr)
+      }
+
+      console.log('🔍 InvoiceService.getInvoiceById - Fetching invoice:', id)
+      
+      const { data, error } = await (this.supabase as any)
         .from('invoices')
         .select(`
           *,
           client:clients(id, first_name, last_name, company, email, phone),
-          project:projects(id, name),
-          items:invoice_items(*)
+          project:projects(id, name)
         `)
         .eq('id', id)
         .single()
 
-      if (error) throw error
+      if (error) {
+        console.error('❌ InvoiceService.getInvoiceById - Error fetching invoice:', error)
+        return { success: false, error: error.message }
+      }
+
+      console.log('✅ InvoiceService.getInvoiceById - Invoice data:', data)
+
+      // Fetch invoice items
+      const { data: items, error: itemsError } = await (this.supabase as any)
+        .from('invoice_items')
+        .select('*')
+        .eq('invoice_id', id)
+        .order('item_order', { ascending: true })
+
+      if (itemsError) {
+        console.error('❌ InvoiceService.getInvoiceById - Error fetching items:', itemsError)
+      } else {
+        console.log('✅ InvoiceService.getInvoiceById - Raw items from DB:', items)
+      }
+
+      // Map database columns to interface - handle both 'total' and 'amount'
+      const mappedItems = (items || []).map((item: any) => ({
+        ...item,
+        amount: item.amount || item.total || 0,  // Map total->amount for consistency
+        unit_price: item.unit_price || 0,
+        quantity: item.quantity || 1,
+        description: item.description || ''
+      }))
+      
+      console.log('✅ InvoiceService.getInvoiceById - Mapped items:', mappedItems)
 
       const invoiceWithItems = {
         ...data,
-        items: data.items || [],
-        attachments: [] // Placeholder until schema is applied
+        items: mappedItems,
+        attachments: []
       }
 
-      // Debug logging
-      console.log('InvoiceService.getInvoiceById - Raw data:', data)
-      console.log('InvoiceService.getInvoiceById - Items from DB:', data.items)
-      console.log('InvoiceService.getInvoiceById - Final invoice items:', invoiceWithItems.items)
-
+      console.log('✅ Invoice fetched with items:', { id, itemCount: mappedItems.length })
       return { success: true, data: invoiceWithItems }
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error fetching invoice:', error)
-      return { success: false, error: error.message }
+      return { success: false, error: 'Failed to fetch invoice' }
     }
   }
 
   async createInvoice(invoice: Partial<Invoice>): Promise<{ success: boolean; data?: Invoice; error?: string }> {
     try {
+      // Get current session to ensure we have authentication context
+      const { data: sessionData, error: sessionError } = await this.supabase.auth.getSession()
+      if (sessionError || !sessionData.session) {
+        console.error('❌ Session error:', sessionError)
+        return { success: false, error: 'Not authenticated. Please refresh the page and try again.' }
+      }
+      const userId = sessionData.session.user.id
+      console.log('✅ Session valid, creating invoice for user:', userId)
+
       // Generate invoice number if not provided
       if (!invoice.invoice_number) {
         const invoiceNumber = await this.generateInvoiceNumber()
         invoice.invoice_number = invoiceNumber
       }
 
-      // Ensure user_id is set - using hardcoded ID for now
-      // Also set a default title if not provided since it's required in DB
+      // Ensure user_id is set from authenticated session
       const invoiceData = {
         ...invoice,
-        user_id: '4bdb74e7-7441-4ca0-9eb4-5ac3a73c22d6',
+        user_id: userId,
         title: invoice.title || `Invoice ${invoice.invoice_number || 'Draft'}`
       }
 
-      const { data, error } = await this.supabase
+      const { data, error } = await (this.supabase as any)
         .from('invoices')
         .insert([invoiceData])
         .select(`
@@ -167,8 +269,12 @@ export class InvoiceService {
         `)
         .single()
 
-      if (error) throw error
+      if (error) {
+        console.error('❌ Error creating invoice:', error)
+        throw error
+      }
 
+      console.log('✅ Invoice created successfully:', data.id)
       return { success: true, data }
     } catch (error: any) {
       console.error('Error creating invoice:', error)
@@ -176,25 +282,73 @@ export class InvoiceService {
     }
   }
 
-  async updateInvoice(id: string, updates: Partial<Invoice>): Promise<{ success: boolean; data?: Invoice; error?: string }> {
+  async updateInvoice(id: string, updates: UpdateInvoiceData): Promise<{ success: boolean; data?: Invoice; error?: string }> {
     try {
-      const { data, error } = await this.supabase
+      const { items, ...invoiceUpdates } = updates
+
+      // Get current session to ensure we have authentication context
+      const { data: sessionData, error: sessionError } = await this.supabase.auth.getSession()
+      if (sessionError || !sessionData.session) {
+        console.error('❌ Session error:', sessionError)
+        return { success: false, error: 'Not authenticated. Please refresh the page and try again.' }
+      }
+      console.log('✅ Session valid:', sessionData.session.user.id)
+
+      // Update invoice
+      const { error: invoiceError } = await (this.supabase as any)
         .from('invoices')
-        .update(updates)
+        .update({
+          ...invoiceUpdates,
+          updated_at: new Date().toISOString()
+        })
         .eq('id', id)
-        .select(`
-          *,
-          client:clients(id, first_name, last_name, company, email, phone),
-          project:projects(id, name)
-        `)
-        .single()
 
-      if (error) throw error
+      if (invoiceError) {
+        console.error('Error updating invoice:', invoiceError)
+        return { success: false, error: invoiceError.message }
+      }
 
-      return { success: true, data }
-    } catch (error: any) {
+      // Update line items if provided
+      if (items && items.length > 0) {
+        // Delete existing items
+        const { error: deleteError } = await (this.supabase as any)
+          .from('invoice_items')
+          .delete()
+          .eq('invoice_id', id)
+
+        if (deleteError) {
+          console.error('Error deleting old invoice items:', deleteError)
+          return { success: false, error: 'Failed to update line items' }
+        }
+
+        // Insert new items
+        const itemsToInsert = items.map((item, idx) => ({
+          invoice_id: id,
+          description: item.description,
+            quantity: item.quantity,
+            unit_price: item.unit_price,
+            amount: item.amount, // correct column name present in schema
+            item_order: item.item_order || (idx + 1)
+        }))
+        
+        console.log('📝 Inserting invoice items:', itemsToInsert)
+
+        const { error: insertError } = await (this.supabase as any)
+          .from('invoice_items')
+          .insert(itemsToInsert)
+
+        if (insertError) {
+          console.error('Error inserting invoice items:', insertError)
+          return { success: false, error: 'Failed to update line items' }
+        }
+      }
+
+      // Fetch updated invoice
+      const result = await this.getInvoiceById(id)
+      return result
+    } catch (error) {
       console.error('Error updating invoice:', error)
-      return { success: false, error: error.message }
+      return { success: false, error: 'Failed to update invoice' }
     }
   }
 
@@ -219,21 +373,22 @@ export class InvoiceService {
     quantity: number
     unit_price: number
     amount: number
-    tax_rate: number
-    tax_amount: number
     item_order: number
     hsn_sac_code?: string
   }): Promise<{ success: boolean; data?: InvoiceItem; error?: string }> {
     try {
-      console.log('InvoiceService.addInvoiceItem - Adding item:', { invoiceId, item })
-      
       const { data, error } = await this.supabase
         .from('invoice_items')
-        .insert([{ ...item, invoice_id: invoiceId }])
+        .insert([{ 
+          invoice_id: invoiceId,
+          description: item.description,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          amount: item.amount,
+          item_order: item.item_order
+        }])
         .select()
         .single()
-
-      console.log('InvoiceService.addInvoiceItem - Insert result:', { data, error })
 
       if (error) throw error
 
@@ -503,11 +658,7 @@ Best regards! 🙏`
         status: paymentStatus,
         updated_at: new Date().toISOString()
       }
-
-      // If marking as paid, set payment date to today
-      if (paymentStatus === 'paid') {
-        updateData.payment_date = new Date().toISOString()
-      }
+      // payment_date column currently not present in schema; omit until added via migration
 
       const { data, error } = await this.supabase
         .from('invoices')

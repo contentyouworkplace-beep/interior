@@ -63,7 +63,7 @@ export function EditQuotationDialog({ open, onOpenChange, quotation, onSuccess }
     template: quotation.template || 'modern',
     currency: quotation.currency || 'INR',
     tax_rate: quotation.tax_rate || gstRate,
-    status: quotation.status || 'draft' as const,
+    status: quotation.status || 'pending' as const,
     valid_until: quotation.valid_until ? new Date(quotation.valid_until) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
   })
   
@@ -245,13 +245,12 @@ export function EditQuotationDialog({ open, onOpenChange, quotation, onSuccess }
               
               <div className="space-y-2">
                 <Label htmlFor="status">Status</Label>
-                <Select value={formData.status} onValueChange={(value) => setFormData({...formData, status: value as 'draft' | 'sent' | 'approved' | 'rejected' | 'expired'})}>
+                <Select value={formData.status} onValueChange={(value) => setFormData({...formData, status: value as 'pending' | 'approved' | 'rejected'})}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="draft">Draft</SelectItem>
-                    <SelectItem value="sent">Sent</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
                     <SelectItem value="approved">Approved</SelectItem>
                     <SelectItem value="rejected">Rejected</SelectItem>
                   </SelectContent>

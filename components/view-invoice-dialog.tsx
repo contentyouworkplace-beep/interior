@@ -12,9 +12,10 @@ interface ViewInvoiceDialogProps {
   children?: React.ReactNode
   open?: boolean
   onOpenChange?: (open: boolean) => void
+  onRequestDelete?: (invoice: Invoice) => void
 }
 
-export function ViewInvoiceDialog({ invoice, children, open: controlledOpen, onOpenChange }: ViewInvoiceDialogProps) {
+export function ViewInvoiceDialog({ invoice, children, open: controlledOpen, onOpenChange, onRequestDelete }: ViewInvoiceDialogProps) {
   const [internalOpen, setInternalOpen] = useState(false)
   const { toast } = useToast()
   
@@ -46,20 +47,7 @@ export function ViewInvoiceDialog({ invoice, children, open: controlledOpen, onO
     }
   }
 
-  const getPaymentStatusColor = (status: string) => {
-    switch (status) {
-      case "unpaid":
-        return "bg-red-100 text-red-800 border-red-200"
-      case "partial":
-        return "bg-yellow-100 text-yellow-800 border-yellow-200"
-      case "paid":
-        return "bg-green-100 text-green-800 border-green-200"
-      case "refunded":
-        return "bg-purple-100 text-purple-800 border-purple-200"
-      default:
-        return "bg-gray-100 text-gray-800 border-gray-200"
-    }
-  }
+  // Removed separate payment_status concept; using single invoice.status field now.
 
   const formatCurrency = (amount: number, currency: string = 'INR') => {
     return new Intl.NumberFormat('en-IN', {
@@ -104,12 +92,20 @@ export function ViewInvoiceDialog({ invoice, children, open: controlledOpen, onO
             </div>
             <div className="flex items-center gap-2">
               <Badge className={getStatusColor(invoice.status)}>
-                {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
+                {invoice.status?.charAt(0).toUpperCase() + invoice.status?.slice(1)}
               </Badge>
-              <Badge className={getPaymentStatusColor(invoice.payment_status)}>
-                <CreditCard className="h-3 w-3 mr-1" />
-                {invoice.payment_status.charAt(0).toUpperCase() + invoice.payment_status.slice(1)}
-              </Badge>
+              {/* Removed payment_status badge (no separate column in current schema) */}
+              {onRequestDelete && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="text-red-600 border-red-300 hover:text-red-700 hover:bg-red-50"
+                  onClick={() => onRequestDelete(invoice)}
+                >
+                  Delete
+                </Button>
+              )}
             </div>
           </DialogTitle>
         </DialogHeader>
@@ -209,18 +205,14 @@ export function ViewInvoiceDialog({ invoice, children, open: controlledOpen, onO
                           <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
                             <span>Qty: {item.quantity}</span>
                             <span>Rate: {formatCurrency(item.unit_price, invoice.currency)}</span>
-                            {item.hsn_sac_code && <span>HSN: {item.hsn_sac_code}</span>}
+                            {/* HSN/SAC removed from schema */}
                           </div>
                         </div>
                         <div className="text-right">
                           <p className="font-semibold">
                             {formatCurrency(item.amount, invoice.currency)}
                           </p>
-                          {item.tax_amount > 0 && (
-                            <p className="text-xs text-muted-foreground">
-                              +{formatCurrency(item.tax_amount, invoice.currency)} tax
-                            </p>
-                          )}
+                          {/* Tax per item removed; only invoice-level tax retained */}
                         </div>
                       </div>
                     </div>

@@ -11,6 +11,7 @@ import { X, Download, Share2, ExternalLink, Calendar, FolderOpen, Images, Upload
 import type { PortfolioProject, PortfolioMedia } from "@/types/portfolio"
 import { PortfolioService } from "@/lib/services/portfolio-service"
 import { toast } from "sonner"
+import { EnhancedGalleryViewer } from "@/components/enhanced-gallery-viewer"
 
 interface PortfolioDetailModalProps {
   portfolio: PortfolioProject | null;
@@ -24,6 +25,8 @@ export function PortfolioDetailModal({ portfolio, open, onOpenChange, onProjectU
   const [showShareDialog, setShowShareDialog] = useState(false)
   const [shareUrl, setShareUrl] = useState('')
   const [isGeneratingShare, setIsGeneratingShare] = useState(false)
+  const [uploadingMore, setUploadingMore] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState({ uploaded: 0, total: 0, currentFile: '' })
   
   if (!portfolio) return null;
 
@@ -108,23 +111,21 @@ export function PortfolioDetailModal({ portfolio, open, onOpenChange, onProjectU
 
   const handleUploadMoreFiles = async (files: File[]) => {
     try {
+      setUploadingMore(true)
+      setUploadProgress({ uploaded: 0, total: files.length, currentFile: '' })
       toast.loading('Uploading files...', { duration: Infinity })
-      
+
       await PortfolioService.uploadMultipleMedia(
         portfolio.id,
         files,
-        (uploaded, total) => {
-          toast.loading(`Uploading... ${uploaded}/${total} files`, { 
-            duration: Infinity 
-          })
+        (uploaded, total, currentFile) => {
+          setUploadProgress({ uploaded, total, currentFile: currentFile || '' })
+          toast.loading(`Uploading... ${uploaded}/${total} files`, { duration: Infinity })
         }
       )
 
-      // Refresh the portfolio data
       const updatedProject = await PortfolioService.getProject(portfolio.id)
-      if (updatedProject && onProjectUpdate) {
-        onProjectUpdate(updatedProject)
-      }
+      if (updatedProject && onProjectUpdate) onProjectUpdate(updatedProject)
 
       toast.dismiss()
       toast.success(`Successfully uploaded ${files.length} files`)
@@ -133,6 +134,9 @@ export function PortfolioDetailModal({ portfolio, open, onOpenChange, onProjectU
       toast.dismiss()
       toast.error('Failed to upload files')
       console.error('Upload error:', error)
+    } finally {
+      setUploadingMore(false)
+      setUploadProgress({ uploaded: 0, total: 0, currentFile: '' })
     }
   }
 
@@ -201,176 +205,59 @@ export function PortfolioDetailModal({ portfolio, open, onOpenChange, onProjectU
         </DialogHeader>
 
         <ScrollArea className="flex-1 max-h-[60vh]">
-          <div className="space-y-6 p-1">
-            {/* Thumbnail Gallery */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold flex items-center gap-2">
-                <FolderOpen className="h-5 w-5" />
-                Project Gallery
-              </h3>
-              {portfolio.media && portfolio.media.length > 0 ? (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                  {portfolio.media.map((media, index) => (
-                    <div 
-                      key={media.id || index} 
-                      className="aspect-square bg-gray-100 rounded-lg overflow-hidden hover:shadow-md transition-shadow cursor-pointer group relative"
-                      onClick={() => openMedia(media.media_url || media.thumbnail_url)}
-                    >
-                      {/* Media display based on type */}
-                      {media.mime_type.startsWith('video/') ? (
-                        <video 
-                          src={media.media_url} 
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                          muted
-                          preload="metadata"
-                        />
-                      ) : media.mime_type === 'application/pdf' ? (
-                        <div className="w-full h-full bg-red-50 flex items-center justify-center">
-                          <div className="text-center">
-                            <FileText className="h-12 w-12 text-red-500 mx-auto mb-2" />
-                            <p className="text-xs text-red-600 font-medium">PDF</p>
-                          </div>
-                        </div>
-                      ) : media.thumbnail_url || media.media_url ? (
-                        <img 
-                          src={media.thumbnail_url || media.media_url} 
-                          alt={media.alt_text || `File ${index + 1}`}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                          onError={(e) => {
-                            const target = e.target as HTMLImageElement;
-                            target.style.display = 'none';
-                            const parent = target.parentElement;
-                            if (parent) {
-                              parent.innerHTML = `
-                                <div class="w-full h-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
-                                  <div class="text-center text-gray-500">
-                                    <svg class="w-12 h-12 mx-auto mb-2" fill="currentColor" viewBox="0 0 20 20">
-                                      <path fill-rule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clip-rule="evenodd" />
-                                    </svg>
-                                    <p class="text-xs">Image</p>
-                                  </div>
-                                </div>
-                              `;
-                            }
-                          }}
-                        />
-                      ) : (
-                        <div className="w-full h-full bg-gradient-to-br from-blue-50 to-blue-100 flex items-center justify-center">
-                          <div className="text-center text-blue-500">
-                            <Images className="w-12 h-12 mx-auto mb-2" />
-                            <p className="text-xs font-medium">Image</p>
-                          </div>
-                        </div>
-                      )}
-                      
-                      {/* Logo Watermark */}
-                      <div className="absolute top-2 left-2 bg-white bg-opacity-90 rounded px-2 py-1 text-xs font-bold text-gray-700 shadow-sm">
-                        GoPLNR
-                      </div>
-                      
-                      {/* Media Type Badge */}
-                      <div className="absolute top-2 right-2">
-                        {media.mime_type.startsWith('video/') && (
-                          <Badge variant="secondary" className="bg-purple-100 text-purple-700">
-                            <Eye className="h-3 w-3 mr-1" />
-                            Video
-                          </Badge>
-                        )}
-                        {media.mime_type === 'application/pdf' && (
-                          <Badge variant="secondary" className="bg-red-100 text-red-700">
-                            <FileText className="h-3 w-3 mr-1" />
-                            PDF
-                          </Badge>
-                        )}
-                      </div>
-                      
-                      <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-opacity flex items-center justify-center">
-                        <ExternalLink className="h-6 w-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-                      </div>
-                      <div className="absolute bottom-2 left-2 right-2">
-                        <div className="flex items-center justify-between">
-                          <p className="text-xs text-white bg-black bg-opacity-60 rounded px-2 py-1 truncate flex-1 mr-1">
-                            {media.title || media.original_filename || 'Untitled'}
-                          </p>
-                          {media.mime_type.startsWith('image/') && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 w-6 p-0 bg-white bg-opacity-80 hover:bg-white text-gray-700"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleSetAsProjectThumbnail(media)
-                              }}
-                              title="Use as project thumbnail"
-                            >
-                              <Images className="h-3 w-3" />
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Images className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                  <p>No thumbnails available</p>
-                </div>
-              )}
-            </div>
-
-            {/* File List */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold flex items-center gap-2">
-                <FolderOpen className="h-5 w-5" />
-                Files ({portfolio.media?.length || 0})
-              </h3>
-              <div className="space-y-2">
-                {portfolio.media?.map((media, index) => (
-                  <div 
-                    key={media.id || index}
-                    className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="text-lg">{getFileTypeIcon(media.mime_type)}</span>
-                      <div>
-                        <p className="font-medium text-sm">{media.title || media.original_filename || 'Untitled'}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {media.mime_type} • {formatFileSize(media.file_size || 0)}
-                        </p>
-                      </div>
-                    </div>
-                    <Button variant="ghost" size="sm" onClick={() => downloadFile(media)}>
-                      <ExternalLink className="h-4 w-4" />
-                    </Button>
-                  </div>
-                )) || []}
-              </div>
-            </div>
+          <div className="space-y-6 p-4">
+            {/* Enhanced Gallery Viewer - Combined Gallery & Files */}
+            <EnhancedGalleryViewer
+              media={portfolio.media || []}
+              projectTitle={portfolio.title}
+              onMediaDelete={(mediaId) => {
+                // Update portfolio after delete
+                if (onProjectUpdate) {
+                  const updatedPortfolio = {
+                    ...portfolio,
+                    media: portfolio.media?.filter(m => m.id !== mediaId) || []
+                  }
+                  onProjectUpdate(updatedPortfolio)
+                }
+              }}
+              onSetFeatured={async (mediaId) => {
+                // Refresh portfolio data
+                try {
+                  const updatedProject = await PortfolioService.getProject(portfolio.id)
+                  if (updatedProject && onProjectUpdate) {
+                    onProjectUpdate(updatedProject)
+                  }
+                } catch (error) {
+                  console.error('Failed to refresh project:', error)
+                }
+              }}
+              allowDelete={true}
+              allowSetFeatured={true}
+            />
 
             {/* Portfolio Stats */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-gray-50 rounded-lg">
-              <div className="text-center">
-                <p className="text-2xl font-bold text-blue-600">{portfolio.media?.length || 0}</p>
-                <p className="text-sm text-muted-foreground">Total Files</p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-3 bg-gray-50 rounded-lg">
+              <div className="text-center space-y-0.5">
+                <p className="text-base font-bold text-blue-600 leading-none">{portfolio.media?.length || 0}</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Total Files</p>
               </div>
-              <div className="text-center">
-                <p className="text-2xl font-bold text-green-600">
+              <div className="text-center space-y-0.5">
+                <p className="text-base font-bold text-green-600 leading-none">
                   {portfolio.media?.filter(m => m.mime_type.startsWith('image/')).length || 0}
                 </p>
-                <p className="text-sm text-muted-foreground">Images</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Images</p>
               </div>
-              <div className="text-center">
-                <p className="text-2xl font-bold text-purple-600">
+              <div className="text-center space-y-0.5">
+                <p className="text-base font-bold text-purple-600 leading-none">
                   {portfolio.media?.filter(m => m.mime_type.startsWith('video/')).length || 0}
                 </p>
-                <p className="text-sm text-muted-foreground">Videos</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Videos</p>
               </div>
-              <div className="text-center">
-                <p className="text-2xl font-bold text-red-600">
+              <div className="text-center space-y-0.5">
+                <p className="text-base font-bold text-red-600 leading-none">
                   {portfolio.media?.filter(m => m.mime_type === 'application/pdf').length || 0}
                 </p>
-                <p className="text-sm text-muted-foreground">Documents</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Documents</p>
               </div>
             </div>
           </div>
@@ -414,6 +301,25 @@ export function PortfolioDetailModal({ portfolio, open, onOpenChange, onProjectU
                 </div>
               </Label>
             </div>
+
+            {uploadingMore && (
+              <div className="space-y-2">
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>Uploading {uploadProgress.uploaded}/{uploadProgress.total}</span>
+                  {uploadProgress.currentFile && (
+                    <span className="truncate max-w-[160px]" title={uploadProgress.currentFile}>
+                      {uploadProgress.currentFile}
+                    </span>
+                  )}
+                </div>
+                <div className="h-2 w-full overflow-hidden rounded bg-gray-200">
+                  <div
+                    className="h-full bg-blue-500 transition-all"
+                    style={{ width: `${uploadProgress.total ? (uploadProgress.uploaded / uploadProgress.total) * 100 : 0}%` }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>

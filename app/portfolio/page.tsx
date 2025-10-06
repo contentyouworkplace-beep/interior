@@ -8,11 +8,21 @@ import { Button } from "@/components/ui/button"
 
 import { AddPortfolioModal } from "@/components/add-portfolio-modal"
 
-import { Images, Upload, Folder, Calendar, Plus } from "lucide-react"
+import { Images, Upload, Folder, Calendar, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { generateThumbnail, ThumbnailResult } from "@/lib/thumbnail-generator"
 import { PortfolioDetailModal } from "@/components/portfolio-detail-modal"
 import { PortfolioService } from "@/lib/services/portfolio-service"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 import type { PortfolioProject, CreatePortfolioProjectRequest } from "@/types/portfolio"
 
@@ -21,11 +31,48 @@ export default function PortfolioPage() {
   const [selectedPortfolio, setSelectedPortfolio] = useState<PortfolioProject | null>(null)
   const [detailModalOpen, setDetailModalOpen] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [portfolioToDelete, setPortfolioToDelete] = useState<PortfolioProject | null>(null)
 
 
   const handlePortfolioClick = (portfolio: PortfolioProject) => {
     setSelectedPortfolio(portfolio)
     setDetailModalOpen(true)
+  }
+
+  const handleDeleteClick = (e: React.MouseEvent, portfolio: PortfolioProject) => {
+    e.stopPropagation() // Prevent opening detail modal
+    setPortfolioToDelete(portfolio)
+    setDeleteConfirmOpen(true)
+  }
+
+  const handleConfirmDelete = async () => {
+    if (!portfolioToDelete) return
+
+    try {
+      await PortfolioService.deleteProject(portfolioToDelete.id)
+      
+      toast.success("Portfolio deleted", {
+        description: `${portfolioToDelete.title} has been removed`
+      })
+      
+      // Close modal if deleted portfolio was open
+      if (selectedPortfolio?.id === portfolioToDelete.id) {
+        setDetailModalOpen(false)
+        setSelectedPortfolio(null)
+      }
+      
+      // Refresh the list
+      await loadPortfolios()
+    } catch (error) {
+      console.error('Failed to delete portfolio:', error)
+      toast.error("Failed to delete portfolio", {
+        description: "Please try again or contact support"
+      })
+    } finally {
+      setDeleteConfirmOpen(false)
+      setPortfolioToDelete(null)
+    }
   }
 
   // Load portfolios from Supabase
@@ -47,13 +94,16 @@ export default function PortfolioPage() {
     loadPortfolios()
   }, [])
 
-  const handleSavePortfolio = async (data: { name: string; category: string; files: File[] }) => {
+    const handleSavePortfolio = async (
+    data: { name: string; category: string; files: File[] },
+    onProgress?: (uploaded: number, total: number, currentFile: string) => void
+  ) => {
     try {
       setLoading(true)
-      console.log('Saving portfolio:', data)
+      console.log('🎯 Creating portfolio:', data.name)
       
-      toast.info("Creating portfolio...", {
-        description: "Creating project and uploading files"
+      const loadingToast = toast.loading("Creating portfolio...", {
+        description: "Setting up your project"
       })
 
       // Convert the modal data to the correct interface
@@ -66,26 +116,86 @@ export default function PortfolioPage() {
       }
 
       const result = await PortfolioService.createProject(projectData)
-      console.log('Portfolio created:', result)
+      console.log('✅ Portfolio created:', result.id)
       
-      // If files were provided, upload them
+      // Upload files if provided
       if (data.files && data.files.length > 0) {
-        // TODO: Implement file upload logic
-        console.log('Files to upload:', data.files)
+        console.log(`📁 Uploading ${data.files.length} files...`)
+        
+        toast.loading(`Uploading files...`, {
+          id: loadingToast,
+          description: `0/${data.files.length} files uploaded`
+        })
+        
+        let uploadedCount = 0
+        const totalFiles = data.files.length
+        
+        // Upload files one by one with progress
+        for (const file of data.files) {
+          try {
+            console.log(`⬆️ Uploading: ${file.name}`)
+            
+            // Call progress callback BEFORE uploading
+            onProgress?.(uploadedCount, totalFiles, file.name)
+            
+            const uploadResponse = await PortfolioService.uploadMedia({
+              project_id: result.id,
+              file,
+              title: file.name.split('.')[0],
+              is_featured: uploadedCount === 0 // First file as featured
+            })
+            
+            if (uploadResponse.success) {
+              uploadedCount++
+              console.log(`✅ Uploaded: ${file.name}`)
+              
+              // Call progress callback AFTER uploading
+              onProgress?.(uploadedCount, totalFiles, file.name)
+              
+              toast.loading(`Uploading files...`, {
+                id: loadingToast,
+                description: `${uploadedCount}/${totalFiles} files uploaded`
+              })
+            } else {
+              console.error(`❌ Failed to upload ${file.name}:`, uploadResponse.error)
+            }
+          } catch (uploadError) {
+            console.error(`❌ Error uploading ${file.name}:`, uploadError)
+          }
+        }
+        
+        console.log(`🎉 Upload complete: ${uploadedCount}/${totalFiles} files`)
+        
+        if (uploadedCount === totalFiles) {
+          toast.success("Portfolio created successfully!", {
+            id: loadingToast,
+            description: `${data.name} with ${uploadedCount} files`
+          })
+        } else if (uploadedCount > 0) {
+          toast.warning("Portfolio created with some files", {
+            id: loadingToast,
+            description: `${uploadedCount}/${totalFiles} files uploaded successfully`
+          })
+        } else {
+          toast.error("Portfolio created but files failed", {
+            id: loadingToast,
+            description: "Please try uploading files again"
+          })
+        }
+      } else {
+        toast.success("Portfolio created successfully!", {
+          id: loadingToast,
+          description: `${data.name} has been added`
+        })
       }
       
       // Refresh the portfolios
       await loadPortfolios()
-      
-      toast.success("Portfolio created successfully!", {
-        description: `${data.name} has been added to your portfolio`
-      })
-      
 
     } catch (error) {
-      console.error('Error creating portfolio:', error)
+      console.error('❌ Failed to create portfolio:', error)
       toast.error("Failed to create portfolio", {
-        description: "Please try again later"
+        description: error instanceof Error ? error.message : 'Please try again'
       })
     } finally {
       setLoading(false)
@@ -153,17 +263,7 @@ export default function PortfolioPage() {
           </div>
         )}
 
-        {/* Add Sample Data Button for Testing */}
-        {portfolios.length === 0 && !loading && (
-          <div className="text-center py-12">
-            <Images className="h-16 w-16 mx-auto mb-4 text-gray-400" />
-            <h3 className="text-lg font-semibold mb-2">No Portfolio Projects Yet</h3>
-            <p className="text-gray-600 mb-6">Create your first portfolio project to get started</p>
-            <p className="text-muted-foreground mb-4">
-              Use the "New Project" button above to get started.
-            </p>
-          </div>
-        )}
+        {/* Removed duplicate early empty state to avoid showing two messages */}
 
         {/* Portfolio Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -260,6 +360,18 @@ export default function PortfolioPage() {
                     {portfolio.category}
                   </Badge>
                 </div>
+
+                {/* Delete button overlay */}
+                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    onClick={(e) => handleDeleteClick(e, portfolio)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
               <CardHeader className="p-4">
                 <CardTitle className="text-lg group-hover:text-blue-600 transition-colors">
@@ -316,9 +428,29 @@ export default function PortfolioPage() {
             setSelectedPortfolio(updatedProject)
           }}
         />
-        
 
-        
+        {/* Delete Confirmation Dialog */}
+        <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Portfolio?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete "{portfolioToDelete?.title}"? 
+                This will permanently delete the portfolio and all its files. 
+                This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleConfirmDelete}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Delete Portfolio
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
       </div>
     </DashboardLayout>

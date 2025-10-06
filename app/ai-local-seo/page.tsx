@@ -52,6 +52,15 @@ export default function AILocalSEOPage() {
           </div>
         </section>
 
+        {/* Membership Notice */}
+        <section className="mt-10">
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+            <p className="text-sm text-gray-600">
+              Note: This feature is available only for active members. Trial users are not eligible.
+            </p>
+          </div>
+        </section>
+
       </div>
     </DashboardLayout>
   )

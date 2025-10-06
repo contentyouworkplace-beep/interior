@@ -29,6 +29,7 @@ import {
   Edit,
   Trash2,
   Eye,
+  FolderOpen,
 } from "lucide-react"
 import { ProjectTasks } from "@/components/project-tasks"
 import { formatINR } from "@/lib/utils"
@@ -300,6 +301,8 @@ export default function ProjectsPage() {
       // Normalize client relationship shape (Supabase may return an object or error type)
       const normalized = (data || []).map(p => ({
         ...p,
+        // Normalize status to hyphenated style for consistent UI (e.g., in_progress -> in-progress)
+        status: (p as any).status ? String((p as any).status).replace(/_/g, "-") : (p as any).status,
         clients: (p as any).clients && !(p as any).clients.code ? (p as any).clients : undefined
       })) as Project[]
       setProjects(normalized)
@@ -462,31 +465,20 @@ export default function ProjectsPage() {
     return matchesSearch && project.status === selectedFilter
   })
 
+  // Real metrics for cards
+  const totalProjects = projects.length
+  const activeProjects = projects.filter((p) => {
+    const s = (p.status || '').toLowerCase()
+    return s !== 'completed' && s !== 'cancelled' && s !== 'canceled'
+  }).length
+  const completedProjects = projects.filter((p) => (p.status || '').toLowerCase() === 'completed').length
+  const totalBudget = projects.reduce((sum, p) => sum + (p.budget ? Number(p.budget as unknown as number) : 0), 0)
+
   const stats = [
-    {
-      title: "Total Projects",
-      value: projects.length.toString(),
-      icon: FileText,
-      color: "text-blue-600",
-    },
-    {
-      title: "Active Projects",
-      value: projects.filter((p) => p.status === "in-progress").length.toString(),
-      icon: Clock,
-      color: "text-yellow-600",
-    },
-    {
-      title: "Completed",
-      value: projects.filter((p) => p.status === "completed").length.toString(),
-      icon: FileText,
-      color: "text-green-600",
-    },
-    {
-      title: "Total Value",
-      value: formatINR(1880000),
-      icon: IndianRupee,
-      color: "text-primary",
-    },
+    { title: 'Total Projects', value: totalProjects.toString(), icon: FileText, color: 'text-blue-600' },
+    { title: 'Active Projects', value: activeProjects.toString(), icon: Clock, color: 'text-yellow-600' },
+    { title: 'Completed', value: completedProjects.toString(), icon: FileText, color: 'text-green-600' },
+    { title: 'Total Value', value: formatINR(totalBudget), icon: IndianRupee, color: 'text-primary' },
   ]
 
   return (
@@ -560,7 +552,29 @@ export default function ProjectsPage() {
 
         {/* Formerly TabsContent */}
         <div className="space-y-6">
+          {/* Zero state */}
+          {!isLoading && filteredProjects.length === 0 && (
+            <Card className="border-border/50">
+              <CardContent className="py-16">
+                <div className="flex flex-col items-center text-center gap-4">
+                  <FolderOpen className="h-10 w-10 text-muted-foreground" />
+                  <div>
+                    <p className="text-lg font-semibold text-foreground">No projects found</p>
+                    <p className="text-sm text-muted-foreground">Get started by creating your first project.</p>
+                  </div>
+                  <AddProjectDialog onProjectAdded={fetchProjects}>
+                    <Button>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Your First Project
+                    </Button>
+                  </AddProjectDialog>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Project Grid: 2 cards per row for clarity */}
+          {filteredProjects.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {filteredProjects.map((project) => (
               <Card
@@ -664,6 +678,7 @@ export default function ProjectsPage() {
               </Card>
             ))}
           </div>
+          )}
 
           {/* Edit / View unified dialogs using the same form as New Project */}
           {editingProject && (

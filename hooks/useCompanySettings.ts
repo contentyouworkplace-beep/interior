@@ -14,6 +14,7 @@ export interface CompanyProfile {
   pin_code?: string | null
   website?: string | null
   cin?: string | null
+  terms_and_conditions?: string | null
 }
 
 export interface BankingInfo {
@@ -27,6 +28,7 @@ export interface BrandingInfo {
   organization_id: string
   logo_url?: string | null
   signature_url?: string | null
+  qr_code_url?: string | null
   primary_color?: string | null
   secondary_color?: string | null
   quotation_template?: string | null

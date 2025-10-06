@@ -1,118 +1,45 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
-import { getAllCompletionStates, addCustomTask, getCustomTasks } from '@/lib/task-storage'
 
-// Type definition for base tasks
-interface BaseTask {
-  title: string
-  time: string
-  type: string
+type TaskType = 'meeting' | 'deadline' | 'personal' | 'call'
+
+const ALLOWED_TASK_TYPES: TaskType[] = ['meeting', 'deadline', 'personal', 'call']
+function normalizeTaskType(t?: string | null): TaskType {
+  if (!t) return 'personal'
+  const v = String(t).toLowerCase().trim()
+  if (v === 'task') return 'personal'
+  return (ALLOWED_TASK_TYPES.includes(v as TaskType) ? (v as TaskType) : 'personal')
 }
 
-// Function to generate different mock tasks based on the date
-function generateMockTasks(date: string) {
-  const dateObj = new Date(date)
-  const dayOfWeek = dateObj.getDay() // 0 = Sunday, 1 = Monday, etc.
-  const dayOfMonth = dateObj.getDate()
-  
-  // Get current completion states
-  const completionStates = getAllCompletionStates()
-  
-  let baseTasks: BaseTask[] = []
-  
-  // Different tasks based on day of week
-  switch (dayOfWeek) {
-    case 1: // Monday
-      baseTasks = [
-        { title: 'Team standup meeting', time: '09:00 AM', type: 'meeting' },
-        { title: 'Review weekly project goals', time: '10:30 AM', type: 'task' },
-        { title: 'Client requirements gathering', time: '02:00 PM', type: 'client' },
-        { title: 'Design concept sketches', time: '04:00 PM', type: 'design' }
-      ]
-      break
-    case 2: // Tuesday
-      baseTasks = [
-        { title: 'Material sourcing research', time: '09:30 AM', type: 'task' },
-        { title: 'Vendor quotes review', time: '11:00 AM', type: 'vendor' },
-        { title: 'Project timeline update', time: '01:30 PM', type: 'project' },
-        { title: 'Budget analysis', time: '03:30 PM', type: 'finance' }
-      ]
-      break
-    case 3: // Wednesday
-      baseTasks = [
-        { title: 'Site visit - Oak Avenue', time: '10:00 AM', type: 'site' },
-        { title: 'Measurement verification', time: '11:30 AM', type: 'task' },
-        { title: 'Design presentation prep', time: '02:30 PM', type: 'design' },
-        { title: 'Client feedback review', time: '04:30 PM', type: 'client' }
-      ]
-      break
-    case 4: // Thursday
-      baseTasks = [
-        { title: 'CAD drawing updates', time: '09:00 AM', type: 'design' },
-        { title: '3D rendering session', time: '11:00 AM', type: 'design' },
-        { title: 'Material samples delivery', time: '01:00 PM', type: 'vendor' },
-        { title: 'Project status meeting', time: '03:00 PM', type: 'meeting' }
-      ]
-      break
-    case 5: // Friday
-      baseTasks = [
-        { title: 'Week review & planning', time: '09:30 AM', type: 'task' },
-        { title: 'Invoice processing', time: '11:00 AM', type: 'finance' },
-        { title: 'Client presentation', time: '02:00 PM', type: 'client' },
-        { title: 'Team wrap-up meeting', time: '04:00 PM', type: 'meeting' }
-      ]
-      break
-    case 6: // Saturday
-      baseTasks = [
-        { title: 'Showroom visits', time: '10:00 AM', type: 'vendor' },
-        { title: 'Inspiration research', time: '12:00 PM', type: 'design' },
-        { title: 'Portfolio updates', time: '02:00 PM', type: 'task' }
-      ]
-      break
-    case 0: // Sunday
-      baseTasks = [
-        { title: 'Week ahead planning', time: '10:00 AM', type: 'task' },
-        { title: 'Design trends research', time: '12:00 PM', type: 'design' },
-        { title: 'Admin tasks cleanup', time: '02:00 PM', type: 'task' }
-      ]
-      break
-  }
-  
-  // Add date-specific variation using day of month
-  const variations = [
-    'Review project deadlines',
-    'Update client communications',
-    'Organize design assets',
-    'Schedule contractor meetings',
-    'Prepare cost estimates'
-  ]
-  
-  if (dayOfMonth % 3 === 0) {
-    baseTasks.push({
-      title: variations[dayOfMonth % variations.length],
-      time: '05:00 PM',
-      type: 'task'
-    })
-  }
-  
-  // Convert to proper task format with unique IDs and apply completion states
-  const mockTasks = baseTasks.map((task, index) => {
-    const taskId = `${date}-${index}`
-    return {
-      id: taskId,
-      title: task.title,
-      time: task.time,
-      type: task.type,
-      completed: completionStates[taskId] || false,
-      date: date
-    }
-  })
+// Helper to format HH:MM:SS to HH:MM AM/PM
+function formatTimeToDisplay(t?: string | null) {
+  if (!t) return ''
+  // Expecting 'HH:MM' or 'HH:MM:SS'
+  const [hh, mm] = t.split(':')
+  let h = Number(hh)
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  h = h % 12
+  if (h === 0) h = 12
+  return `${h}:${mm} ${ampm}`
+}
 
-  // Get custom tasks for this date and merge them
-  const customTasksForDate = getCustomTasks(date)
-  
-  // Combine mock tasks with custom tasks
-  return [...mockTasks, ...customTasksForDate]
+// Parse time from either 'HH:MM' or 'HH:MM AM/PM' into 'HH:MM:SS'
+function parseIncomingTime(time: string): string | null {
+  if (!time) return null
+  const ampmMatch = time.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i)
+  if (ampmMatch) {
+    let h = parseInt(ampmMatch[1], 10)
+    const m = ampmMatch[2]
+    const mer = ampmMatch[3].toUpperCase()
+    if (mer === 'PM' && h < 12) h += 12
+    if (mer === 'AM' && h === 12) h = 0
+    return `${String(h).padStart(2, '0')}:${m}:00`
+  }
+  const simple = time.match(/^(\d{2}):(\d{2})$/)
+  if (simple) {
+    return `${simple[1]}:${simple[2]}:00`
+  }
+  return null
 }
 
 // GET: Fetch tasks by date
@@ -131,13 +58,28 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const date = searchParams.get('date') || new Date().toISOString().split('T')[0]
 
-    // Generate date-specific mock tasks
-    const mockTasks = generateMockTasks(date)
+    // Fetch tasks for this user and date from Supabase
+    const { data, error } = await supabase
+      .from('tasks')
+      .select('id,title,scheduled_time,type,completed')
+      .eq('user_id', user.id)
+      .eq('scheduled_date', date)
+      .order('scheduled_time', { ascending: true })
 
-    return NextResponse.json({
-      tasks: mockTasks,
-      success: true
-    })
+    if (error) {
+      console.error('Tasks query error:', error)
+      return NextResponse.json({ error: 'Failed to fetch tasks' }, { status: 500 })
+    }
+
+    const tasks = (data || []).map(t => ({
+      id: t.id,
+      title: t.title,
+      time: formatTimeToDisplay(t.scheduled_time as unknown as string),
+      type: normalizeTaskType(t.type as unknown as string),
+      completed: !!t.completed
+    }))
+
+    return NextResponse.json({ tasks, success: true })
 
   } catch (error) {
     console.error('Tasks API error:', error)
@@ -160,8 +102,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const body = await request.json()
-    const { title, time, date, type = 'task' } = body
+  const body = await request.json()
+  const { title, time, date, type = 'personal' } = body
 
     // Validate required fields
     if (!title || !time || !date) {
@@ -171,36 +113,41 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Add the custom task to storage
-    const taskId = addCustomTask({
+    // Convert time to DB format
+    const dbTime = parseIncomingTime(time)
+
+    const insertPayload = {
       title,
-      time,
-      date,
-      type,
-      completed: false
-    })
-    
-    // Create response task object
-    const newTask = {
-      id: taskId,
-      title,
-      time,
-      date,
-      type,
+      scheduled_date: date,
+      scheduled_time: dbTime,
+      type: normalizeTaskType(type),
       completed: false,
-      created_at: new Date().toISOString(),
       user_id: user.id
     }
 
-    console.log('✅ Debug Bot: Created new task successfully:', newTask)
+    const { data, error } = await supabase
+      .from('tasks')
+      .insert(insertPayload)
+      .select('id,title,scheduled_time,type,completed')
+      .single()
 
-    return NextResponse.json({
-      task: newTask,
-      success: true
-    })
+    if (error) {
+      console.error('Create task insert error:', error)
+      return NextResponse.json({ error: 'Failed to create task' }, { status: 500 })
+    }
+
+    const created = {
+      id: data.id,
+      title: data.title,
+      time: formatTimeToDisplay(data.scheduled_time as unknown as string),
+      type: (data.type || 'personal') as 'meeting' | 'deadline' | 'personal' | 'call',
+      completed: !!data.completed
+    }
+
+    return NextResponse.json({ task: created, success: true })
 
   } catch (error) {
-    console.error('❌ Debug Bot: Create task error:', error)
+    console.error('Create task error:', error)
     return NextResponse.json(
       { error: 'Failed to create task' },
       { status: 500 }

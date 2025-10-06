@@ -228,8 +228,6 @@ export function CreateInvoiceDialog({ open, onOpenChange, onSuccess }: CreateInv
             quantity: item.quantity,
             unit_price: item.unit_price,
             amount: item.amount,
-            tax_rate: formData.tax_rate,
-            tax_amount: (item.amount * formData.tax_rate) / 100,
             item_order: index + 1
           }))
         

@@ -1,0 +1,69 @@
+╔══════════════════════════════════════════════════════════════════════════╗
+║                   🔧 UPDATED FIX - RUN THIS IN SUPABASE                   ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+The policy already exists but may be configured wrong.
+DROP it and recreate it properly:
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║                          📋 COPY THIS SQL                                 ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+-- Step 1: Drop the existing (broken) policy
+DROP POLICY IF EXISTS "Allow all for authenticated users" ON invoice_items;
+
+-- Step 2: Recreate it correctly
+CREATE POLICY "Allow all for authenticated users" 
+ON invoice_items 
+FOR ALL 
+TO authenticated 
+USING (true) 
+WITH CHECK (true);
+
+-- Step 3: Verify it was created
+SELECT policyname, cmd, qual, with_check
+FROM pg_policies 
+WHERE tablename = 'invoice_items';
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║                         ⚡ AFTER RUNNING THIS                             ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+Run this in your terminal to verify:
+```bash
+node check-schema-and-rls.js
+```
+
+Expected output:
+```
+2. Testing with ANON KEY (respects RLS):
+   Result: 5 items found  ✅
+```
+
+Then refresh your browser and click Edit!
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║                      💡 WHY THE ERROR HAPPENED                            ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+Error: "policy already exists"
+→ The policy was created but configured incorrectly
+→ So it exists but doesn't allow access
+→ Solution: DROP and recreate with correct settings
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║                   📊 WHAT WE LEARNED FROM QUOTATIONS                     ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+✅ Quotations API uses JOIN to fetch items:
+   items:quotation_items (...)
+
+✅ This works even with RLS because:
+   - Either quotation_items has proper RLS policies
+   - OR the join happens in a way that bypasses RLS
+
+❌ Invoice items can't be read because:
+   - RLS policy exists but is configured wrong
+   - The policy needs to be dropped and recreated
+
+The SQL above will fix this!

@@ -16,20 +16,20 @@ import {
   Download, 
   Trash2, 
   Eye, 
-  Share2,
   FileText, 
   Image, 
   FileSpreadsheet,
   File,
   Calendar,
   Filter,
-  Loader2
+  Loader2,
+  X
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { ClientFileService, ClientFile } from "@/lib/services/client-files"
 import { createClient } from '@/lib/supabase/client'
 import { DeleteFileDialog } from "@/components/delete-file-dialog"
-import { ShareFileDialog } from "@/components/share-file-dialog"
+// Removed ShareFileDialog per requirement to remove share option
 
 interface ViewFilesDialogProps {
   open: boolean
@@ -50,8 +50,8 @@ export function ViewFilesDialog({
   const [loading, setLoading] = useState(false)
   const [fileToDelete, setFileToDelete] = useState<ClientFile | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
-  const [fileToShare, setFileToShare] = useState<ClientFile | null>(null)
-  const [shareFileUrl, setShareFileUrl] = useState<string | null>(null)
+  // Inline viewer state
+  const [preview, setPreview] = useState<{ file: ClientFile; url: string } | null>(null)
   const [clientInfo, setClientInfo] = useState<any>(null)
   const { toast } = useToast()
   
@@ -259,74 +259,31 @@ export function ViewFilesDialog({
   const handlePreview = async (file: ClientFile) => {
     try {
       console.log('Preview clicked for file:', file)
-      
-      // For storage files, use the file URL directly
+      let url: string | null = null
+
+      // Prefer a signed URL for storage objects
       if (file.storage_path) {
-        window.open(file.file_url, '_blank')
-        toast({
-          title: "Opening preview",
-          description: `Opening ${file.filename} for preview...`
-        })
-        return
-      }
-      
-      // For database files, use the service method
-      const result = await clientFileService.getViewUrl(file.id)
-      if (result.success && result.url) {
-        window.open(result.url, '_blank')
-        toast({
-          title: "Opening preview",
-          description: `Opening ${file.filename} for preview...`
-        })
+        const { data: signed, error } = await supabase.storage
+          .from('client-files')
+          .createSignedUrl(file.storage_path, 3600)
+        if (error) throw new Error(error.message)
+        url = signed.signedUrl
       } else {
-        throw new Error(result.error)
+        // For database files, use service method to resolve a view URL
+        const result = await clientFileService.getViewUrl(file.id)
+        if (!result.success || !result.url) throw new Error(result.error)
+        url = result.url
       }
+
+      if (!url) throw new Error('Unable to resolve preview URL')
+
+      // Open inline viewer
+      setPreview({ file, url })
     } catch (error) {
       console.error('Preview error:', error)
       toast({
         title: "Preview failed",
         description: "Unable to preview file. Please try again.",
-        variant: "destructive"
-      })
-    }
-  }
-
-  const handleShare = async (file: ClientFile) => {
-    try {
-      console.log('Share clicked for file:', file)
-      
-      // For storage files, get the URL and show share dialog directly
-      if (file.storage_path) {
-        setFileToShare(file)
-        setShareFileUrl(file.file_url)
-        return
-      }
-      
-      // For database files, try the full sharing system
-      const result = await clientFileService.shareFile(file.id, clientId)
-      
-      if (result.success) {
-        toast({
-          title: "File shared",
-          description: `${file.filename} shared successfully`
-        })
-      } else if (result.error && result.error.includes('showOptions')) {
-        const errorData = JSON.parse(result.error)
-        if (errorData.type === 'showOptions') {
-          const urlResult = await clientFileService.getDownloadUrl(file.id)
-          if (urlResult.success && urlResult.url) {
-            setFileToShare(file)
-            setShareFileUrl(urlResult.url)
-          }
-        }
-      } else {
-        throw new Error(result.error)
-      }
-    } catch (error) {
-      console.error('Share error:', error)
-      toast({
-        title: "Share failed",
-        description: "Unable to share file. Please try again.",
         variant: "destructive"
       })
     }
@@ -444,18 +401,7 @@ export function ViewFilesDialog({
                     >
                       <Download className="h-4 w-4" />
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        console.log('Share clicked for file:', file)
-                        handleShare(file)
-                      }}
-                      title="Share file"
-                      className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                    >
-                      <Share2 className="h-4 w-4" />
-                    </Button>
+                    {/* Share action removed as requested */}
                     <Button
                       variant="ghost"
                       size="sm"
@@ -495,19 +441,68 @@ export function ViewFilesDialog({
         isDeleting={isDeleting}
       />
 
-      {/* Share File Dialog */}
-      <ShareFileDialog
-        open={!!fileToShare}
-        onOpenChange={(open) => {
-          if (!open) {
-            setFileToShare(null)
-            setShareFileUrl(null)
-          }
-        }}
-        file={fileToShare}
-        client={clientInfo}
-        fileUrl={shareFileUrl || undefined}
-      />
+      {/* Inline Viewer Dialog */}
+      <Dialog open={!!preview} onOpenChange={(open) => !open && setPreview(null)}>
+        <DialogContent className="sm:max-w-[900px] max-h-[85vh] p-0 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b">
+            <div className="min-w-0 pr-2">
+              <DialogTitle className="truncate">{preview?.file.filename}</DialogTitle>
+              <DialogDescription className="truncate">
+                {preview?.file.file_type}
+              </DialogDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              {preview && (
+                <Button size="sm" variant="outline" onClick={() => handleDownload(preview.file)}>
+                  <Download className="h-4 w-4 mr-2" /> Download
+                </Button>
+              )}
+              <Button size="icon" variant="ghost" onClick={() => setPreview(null)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+
+          <div className="bg-black/5 flex items-center justify-center" style={{ minHeight: 400 }}>
+            {preview && (
+              <div className="w-full h-[70vh] max-h-[70vh]">
+                {preview.file.file_type.includes('image') ? (
+                  // Image preview
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={preview.url}
+                    alt={preview.file.filename}
+                    className="object-contain w-full h-full"
+                  />
+                ) : preview.file.file_type.includes('video') ? (
+                  // Video preview
+                  <video
+                    src={preview.url}
+                    className="object-contain w-full h-full bg-black"
+                    controls
+                  />
+                ) : preview.file.file_type.includes('pdf') ? (
+                  // PDF preview
+                  <iframe
+                    src={`${preview.url}#toolbar=1&navpanes=0`}
+                    className="w-full h-full bg-white"
+                    title={preview.file.filename}
+                  />
+                ) : (
+                  // Unsupported type
+                  <div className="flex flex-col items-center justify-center h-full text-center p-6">
+                    <File className="h-10 w-10 text-muted-foreground mb-3" />
+                    <p className="mb-2">Preview not available for this file type.</p>
+                    <Button onClick={() => handleDownload(preview.file)}>
+                      <Download className="h-4 w-4 mr-2" /> Download
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   )
 }

@@ -1,0 +1,50 @@
+-- Insert demo company profile data for testing
+INSERT INTO company_profiles (
+  organization_id,
+  company_name,
+  company_tagline,
+  phone,
+  email,
+  website,
+  address_line1,
+  address_line2,
+  city,
+  state,
+  postal_code,
+  country,
+  gstin,
+  pan,
+  cin
+) VALUES (
+  '00000000-0000-0000-0000-000000000001',
+  'Elite Interiors Design Studio',
+  'Transforming Spaces, Creating Dreams',
+  '+91 98765 43210',
+  'info@eliteinteriors.com',
+  'www.eliteinteriors.com',
+  '123 Design Plaza, MG Road',
+  'Floor 5, Tower B',
+  'Mumbai',
+  'Maharashtra',
+  '400001',
+  'India',
+  '27AABCU9603R1ZM',
+  'AABCU9603R',
+  'U74999MH2020PTC123456'
+)
+ON CONFLICT (organization_id) 
+DO UPDATE SET
+  company_name = EXCLUDED.company_name,
+  company_tagline = EXCLUDED.company_tagline,
+  phone = EXCLUDED.phone,
+  email = EXCLUDED.email,
+  website = EXCLUDED.website,
+  address_line1 = EXCLUDED.address_line1,
+  address_line2 = EXCLUDED.address_line2,
+  city = EXCLUDED.city,
+  state = EXCLUDED.state,
+  postal_code = EXCLUDED.postal_code,
+  country = EXCLUDED.country,
+  gstin = EXCLUDED.gstin,
+  pan = EXCLUDED.pan,
+  cin = EXCLUDED.cin;

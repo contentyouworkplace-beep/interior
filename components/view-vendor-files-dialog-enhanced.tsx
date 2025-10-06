@@ -19,12 +19,12 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
-import { AlertCircle, Download, Files, Eye, Trash2, Search, RefreshCcw, Share2 } from "lucide-react"
-import { useToast } from "@/hooks/use-toast"
+import { AlertCircle, Download, Files, Eye, Trash2, Search, RefreshCcw, X, ZoomIn, ZoomOut } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { formatDistanceToNow, format } from "date-fns"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { toast } from "sonner"
 
 interface VendorFile {
   id: string
@@ -57,7 +57,6 @@ export function ViewVendorFilesDialogEnhanced({
   open,
   onOpenChange,
 }: ViewVendorFilesDialogEnhancedProps) {
-  const { toast } = useToast()
   const supabase = createClient()
   const [files, setFiles] = useState<VendorFile[]>([])
   const [filteredFiles, setFilteredFiles] = useState<VendorFile[]>([])
@@ -67,6 +66,11 @@ export function ViewVendorFilesDialogEnhanced({
   const [isUsingFallback, setIsUsingFallback] = useState(false)
   const [selectedFile, setSelectedFile] = useState<VendorFile | null>(null)
   const [deleteInProgress, setDeleteInProgress] = useState<string | null>(null)
+  const [viewingFile, setViewingFile] = useState<VendorFile | null>(null)
+  const [viewerOpen, setViewerOpen] = useState(false)
+  const [filePreviewUrl, setFilePreviewUrl] = useState<string | null>(null)
+  const [loadingPreview, setLoadingPreview] = useState(false)
+  const [zoom, setZoom] = useState(100)
 
   useEffect(() => {
     if (open) {
@@ -147,10 +151,8 @@ export function ViewVendorFilesDialogEnhanced({
           setFiles(emergencyResult.data || [])
           setFilteredFiles(emergencyResult.data || [])
           setIsUsingFallback(true)
-          toast({
-            title: "Using Emergency Demo Mode",
-            description: "Database connection issue - showing emergency demo data",
-            variant: "destructive",
+          toast.error("Using Emergency Demo Mode", {
+            description: "Database connection issue - showing emergency demo data"
           })
           setLoading(false)
           return
@@ -161,10 +163,8 @@ export function ViewVendorFilesDialogEnhanced({
           setFiles(fallbackResult.data)
           setFilteredFiles(fallbackResult.data)
           setIsUsingFallback(true)
-          toast({
-            title: "Using Demo Mode",
-            description: "Database connection issue - showing demo data",
-            variant: "destructive",
+          toast.error("Using Demo Mode", {
+            description: "Database connection issue - showing demo data"
           })
           setLoading(false)
           return
@@ -182,10 +182,8 @@ export function ViewVendorFilesDialogEnhanced({
     } catch (error: any) {
       console.error("Error fetching vendor files:", error)
       setError(error.message || "Failed to load vendor files")
-      toast({
-        title: "Error",
-        description: "Could not load vendor files. Please try again later.",
-        variant: "destructive",
+      toast.error("Error", {
+        description: "Could not load vendor files. Please try again later."
       })
       
       // Set empty arrays if everything fails
@@ -198,13 +196,15 @@ export function ViewVendorFilesDialogEnhanced({
 
   const downloadFile = async (file: VendorFile) => {
     if (isUsingFallback) {
-      toast({
-        title: "Demo Mode",
-        description: "File download is not available in demo mode",
-        variant: "destructive",
+      toast.error("Demo Mode", {
+        description: "File download is not available in demo mode"
       })
       return
     }
+    
+    const loadingToast = toast.loading("Preparing download...", {
+      description: `Getting ${file.file_name}`
+    })
     
     try {
       // Get the signed URL for the file
@@ -215,90 +215,85 @@ export function ViewVendorFilesDialogEnhanced({
       if (error) throw error
       
       if (data?.signedUrl) {
-        // Create a link and click it programmatically
+        // Fetch the file as blob
+        const response = await fetch(data.signedUrl)
+        const blob = await response.blob()
+        
+        // Create download link
+        const url = window.URL.createObjectURL(blob)
         const link = document.createElement('a')
-        link.href = data.signedUrl
+        link.href = url
         link.download = file.file_name
         document.body.appendChild(link)
         link.click()
         document.body.removeChild(link)
+        window.URL.revokeObjectURL(url)
         
-        toast({
-          title: "Download Started",
-          description: `Downloading ${file.file_name}`,
+        toast.dismiss(loadingToast)
+        toast.success("Download Complete", {
+          description: `${file.file_name} has been downloaded`
         })
       }
     } catch (error: any) {
       console.error("Error downloading file:", error)
-      toast({
-        title: "Download Failed",
-        description: error.message || "Could not download the file",
-        variant: "destructive",
+      toast.dismiss(loadingToast)
+      toast.error("Download Failed", {
+        description: error.message || "Could not download the file"
       })
     }
   }
 
   const viewFile = async (file: VendorFile) => {
     if (isUsingFallback) {
-      toast({
-        title: "Demo Mode",
-        description: "File viewing is not available in demo mode",
-        variant: "destructive",
+      toast.error("Demo Mode", {
+        description: "File viewing is not available in demo mode"
       })
       return
     }
+    
+    setLoadingPreview(true)
+    setViewingFile(file)
+    setViewerOpen(true)
+    setZoom(100)
     
     try {
       // Get the signed URL for the file
       const { data, error } = await supabase.storage
         .from('client-files')
-        .createSignedUrl(file.file_path, 60)
+        .createSignedUrl(file.file_path, 3600) // 1 hour
       
       if (error) throw error
       
       if (data?.signedUrl) {
-        // Open in a new tab
-        window.open(data.signedUrl, '_blank')
+        setFilePreviewUrl(data.signedUrl)
       }
     } catch (error: any) {
       console.error("Error viewing file:", error)
-      toast({
-        title: "Error",
-        description: error.message || "Could not open the file for viewing",
-        variant: "destructive",
+      toast.error("Failed to load preview", {
+        description: error.message || "Could not open the file for viewing"
       })
+      setViewerOpen(false)
+      setViewingFile(null)
+    } finally {
+      setLoadingPreview(false)
     }
   }
 
-  const shareFile = async (file: VendorFile) => {
-    try {
-      if (!file.download_url) {
-        throw new Error('File URL not available')
-      }
-      
-      // Check if Web Share API is supported
-      if (navigator.share) {
-        await navigator.share({
-          title: `File: ${file.original_filename}`,
-          text: `Sharing file from ${vendorName}`,
-          url: file.download_url,
-        })
-      } else {
-        // Fallback: Copy URL to clipboard
-        await navigator.clipboard.writeText(file.download_url)
-        toast({
-          title: "Link Copied",
-          description: "File link has been copied to clipboard",
-        })
-      }
-    } catch (error: any) {
-      console.error("Error sharing file:", error)
-      toast({
-        title: "Share Failed",
-        description: error.message || "Could not share the file",
-        variant: "destructive",
-      })
-    }
+  const closeViewer = () => {
+    setViewerOpen(false)
+    setViewingFile(null)
+    setFilePreviewUrl(null)
+    setZoom(100)
+  }
+  
+  const isImageFile = (mimeType: string | null | undefined): boolean => {
+    if (!mimeType) return false
+    return mimeType.startsWith('image/')
+  }
+  
+  const isPDFFile = (mimeType: string | null | undefined): boolean => {
+    if (!mimeType) return false
+    return mimeType === 'application/pdf' || mimeType.includes('pdf')
   }
 
   const confirmDeleteFile = (file: VendorFile) => {
@@ -309,10 +304,8 @@ export function ViewVendorFilesDialogEnhanced({
     if (!selectedFile) return
     
     if (isUsingFallback) {
-      toast({
-        title: "Demo Mode",
-        description: "File deletion is not available in demo mode",
-        variant: "destructive",
+      toast.error("Demo Mode", {
+        description: "File deletion is not available in demo mode"
       })
       setSelectedFile(null)
       return
@@ -333,16 +326,13 @@ export function ViewVendorFilesDialogEnhanced({
       
       // Update the UI
       setFiles(prev => prev.filter(f => f.id !== selectedFile.id))
-      toast({
-        title: "File Deleted",
-        description: `${selectedFile.file_name} has been deleted successfully`,
+      toast.success("File Deleted", {
+        description: `${selectedFile.file_name} has been deleted successfully`
       })
     } catch (error: any) {
       console.error("Error deleting file:", error)
-      toast({
-        title: "Delete Failed",
-        description: error.message || "Could not delete the file",
-        variant: "destructive",
+      toast.error("Delete Failed", {
+        description: error.message || "Could not delete the file"
       })
     } finally {
       setDeleteInProgress(null)
@@ -565,16 +555,6 @@ export function ViewVendorFilesDialogEnhanced({
                           >
                             <Download className="h-3.5 w-3.5" />
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 w-7 p-0 hover:bg-slate-100 hover:text-blue-500 rounded-md transition-colors"
-                            onClick={() => shareFile(file)}
-                            title="Share file"
-                            disabled={isUsingFallback}
-                          >
-                            <Share2 className="h-3.5 w-3.5" />
-                          </Button>
                           <div className="w-px h-5 bg-slate-200 mx-0.5"></div>
                           <Button
                             variant="ghost"
@@ -606,6 +586,143 @@ export function ViewVendorFilesDialogEnhanced({
           </Button>
         </DialogFooter>
       </DialogContent>
+      
+      {/* File Viewer Modal */}
+      {viewingFile && (
+        <Dialog open={viewerOpen} onOpenChange={(open) => !open && closeViewer()}>
+          <DialogContent className="max-w-5xl max-h-[90vh] p-0">
+            <DialogHeader className="p-6 pb-4">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <DialogTitle className="text-lg font-semibold flex items-center gap-2">
+                    <span className="text-2xl">{getFileTypeIcon(viewingFile.mime_type)}</span>
+                    {viewingFile.file_name}
+                  </DialogTitle>
+                  <DialogDescription className="mt-1">
+                    {viewingFile.description || 'File preview'}
+                    <span className="ml-2 text-xs">({formatFileSize(viewingFile.file_size)})</span>
+                  </DialogDescription>
+                </div>
+              </div>
+            </DialogHeader>
+            
+            <div className="relative flex-1 overflow-auto bg-slate-50" style={{ minHeight: '60vh', maxHeight: 'calc(90vh - 180px)' }}>
+              {loadingPreview ? (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="text-center">
+                    <div className="inline-block h-12 w-12 border-4 border-primary border-t-transparent rounded-full animate-spin mb-3"></div>
+                    <p className="text-muted-foreground">Loading preview...</p>
+                  </div>
+                </div>
+              ) : filePreviewUrl ? (
+                <div className="h-full flex flex-col">
+                  {/* Zoom controls for images */}
+                  {isImageFile(viewingFile.mime_type) && (
+                    <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-sm border-b px-4 py-2 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setZoom(Math.max(25, zoom - 25))}
+                          disabled={zoom <= 25}
+                        >
+                          <ZoomOut className="h-4 w-4" />
+                        </Button>
+                        <span className="text-sm font-medium min-w-[60px] text-center">{zoom}%</span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setZoom(Math.min(200, zoom + 25))}
+                          disabled={zoom >= 200}
+                        >
+                          <ZoomIn className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setZoom(100)}
+                          disabled={zoom === 100}
+                        >
+                          Reset
+                        </Button>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => downloadFile(viewingFile)}
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        Download
+                      </Button>
+                    </div>
+                  )}
+                  
+                  {/* Image viewer */}
+                  {isImageFile(viewingFile.mime_type) && (
+                    <div className="flex-1 overflow-auto p-6 flex items-center justify-center">
+                      <img
+                        src={filePreviewUrl}
+                        alt={viewingFile.file_name}
+                        style={{ 
+                          width: `${zoom}%`,
+                          maxWidth: zoom === 100 ? '100%' : 'none',
+                          height: 'auto',
+                          objectFit: 'contain'
+                        }}
+                        className="rounded-lg shadow-lg"
+                      />
+                    </div>
+                  )}
+                  
+                  {/* PDF viewer */}
+                  {isPDFFile(viewingFile.mime_type) && (
+                    <div className="flex-1 p-4">
+                      <div className="h-full bg-white rounded-lg shadow-inner">
+                        <iframe
+                          src={filePreviewUrl}
+                          className="w-full h-full rounded-lg"
+                          title={viewingFile.file_name}
+                          style={{ minHeight: '70vh' }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Unsupported file type */}
+                  {!isImageFile(viewingFile.mime_type) && !isPDFFile(viewingFile.mime_type) && (
+                    <div className="flex-1 flex items-center justify-center p-8">
+                      <div className="text-center">
+                        <div className="text-6xl mb-4">{getFileTypeIcon(viewingFile.mime_type)}</div>
+                        <h3 className="text-lg font-semibold mb-2">Preview not available</h3>
+                        <p className="text-muted-foreground mb-4">
+                          This file type ({viewingFile.mime_type}) cannot be previewed in the browser.
+                        </p>
+                        <Button onClick={() => downloadFile(viewingFile)}>
+                          <Download className="h-4 w-4 mr-2" />
+                          Download File
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="text-center">
+                    <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-3" />
+                    <p className="text-muted-foreground">Failed to load file preview</p>
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            <DialogFooter className="p-4 border-t">
+              <Button variant="outline" onClick={closeViewer}>
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
       
       {/* Delete confirmation dialog */}
       {selectedFile && (

@@ -444,6 +444,21 @@ export function ViewExpenseDialog({ expense, open, onOpenChange }: ViewExpenseDi
                 title="Attachments"
                 compact={true}
                 showBatchActions={files.length > 1}
+                onDeleteFile={async (file) => {
+                  // Helper to decide if a URL corresponds to this file
+                  const matchesFile = (u: string) => {
+                    if (file.storage_path && (u.includes(file.storage_path) || u.endsWith(file.storage_path))) return true
+                    // Fallback by name
+                    return u.split('?')[0].endsWith(`/${file.name}`)
+                  }
+                  setFiles(prev => prev.filter(u => !matchesFile(u)))
+                  try {
+                    const remaining = files.filter(u => !matchesFile(u))
+                    await ExpenseService.updateExpense(expense.id!, expense.user_id, { file_urls: remaining })
+                  } catch (e) {
+                    console.warn('Failed updating expense after delete', e)
+                  }
+                }}
               />
             </CardContent>
           </Card>

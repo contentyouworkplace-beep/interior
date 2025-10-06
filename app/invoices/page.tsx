@@ -3,9 +3,10 @@
 import { useState, useEffect } from "react"
 import { CreateInvoiceDialog } from "@/components/create-invoice-dialog"
 import { CreateInvoiceDialogMinimal } from "@/components/create-invoice-dialog-minimal"
-import { EditInvoiceDialog } from "@/components/edit-invoice-dialog"
+import { SimpleEditInvoiceDialog } from "@/components/simple-edit-invoice-dialog"
 import { ShareInvoiceDialog } from "@/components/share-invoice-dialog"
 import { ViewInvoiceDialog } from "@/components/view-invoice-dialog"
+import { InvoicePDFViewerDialog } from "@/components/invoice-pdf-viewer-dialog"
 import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { Button } from "@/components/ui/button"
@@ -52,10 +53,15 @@ export default function InvoicesPage() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [viewDialogOpen, setViewDialogOpen] = useState(false)
+  const [pdfViewerOpen, setPdfViewerOpen] = useState(false)
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
+  const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null)
+  const [viewingInvoice, setViewingInvoice] = useState<Invoice | null>(null)
   const [downloadingPdf, setDownloadingPdf] = useState<string | null>(null)
+  const [markingPaidId, setMarkingPaidId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   
   const router = useRouter()
   const invoiceService = new InvoiceService()
@@ -84,14 +90,25 @@ export default function InvoicesPage() {
     }
   }
 
-  const handleEditInvoice = (invoice: Invoice) => {
-    // Navigate to the new dynamic page for editing
-    router.push(`/create-document?type=invoice&id=${invoice.id}`)
+  const handleEditInvoice = async (invoice: Invoice) => {
+    // Fetch full invoice with items
+    console.log('🔍 Fetching full invoice for editing:', invoice.id)
+    console.log('🔍 Invoice passed to edit:', invoice)
+    const result = await invoiceService.getInvoiceById(invoice.id)
+    console.log('📄 Full invoice data from service:', result.data)
+    console.log('📄 Items in fetched invoice:', result.data?.items)
+    if (result.success && result.data) {
+      setEditingInvoice(result.data)
+      setEditDialogOpen(true)
+    } else {
+      console.error('❌ Failed to load invoice:', result.error)
+      toast.error('Failed to load invoice')
+    }
   }
 
   const handleViewInvoice = (invoice: Invoice) => {
-    setSelectedInvoice(invoice)
-    setViewDialogOpen(true)
+    setViewingInvoice(invoice)
+    setPdfViewerOpen(true)
   }
 
   const handleShareInvoice = (invoice: Invoice) => {
@@ -141,8 +158,6 @@ export default function InvoicesPage() {
               quantity: item.quantity,
               unit_price: item.unit_price,
               amount: item.amount,
-              tax_rate: item.tax_rate,
-              tax_amount: item.tax_amount,
               item_order: item.item_order
             })
           }
@@ -162,52 +177,176 @@ export default function InvoicesPage() {
   const handleDownloadPDF = async (invoice: Invoice) => {
     try {
       setDownloadingPdf(invoice.id)
-      toast.info("Generating professional PDF...", { 
-        description: "Fetching invoice details and creating your branded document" 
+      toast.info("Generating PDF...", { 
+        description: "Creating your invoice document" 
       })
       
-      // Use the professional PDF generation service
-      const { professionalPDFService } = await import('@/lib/services/professional-pdf-service')
+      // Import services
+      const { ReactPDFService } = await import('@/lib/services/react-pdf-service')
+      const { CompanyDataService } = await import('@/lib/services/company-data-service')
+      const { documentStorage } = await import('@/lib/services/document-storage-service')
+      const { activityLogger } = await import('@/lib/services/activity-logging-service')
       
-      // First, fetch the complete invoice with items
+      const companyService = new CompanyDataService()
+      
+      // Get company data with embedded images
+      const companyDataResult = await companyService.getCompanyData()
+      if (!companyDataResult.success || !companyDataResult.data) {
+        throw new Error('Failed to fetch company data')
+      }
+      const companyData = companyDataResult.data
+
+      // Helper function to fetch and embed images as PNG base64
+      const fetchAndEmbed = async (url: string | undefined, label: string, forcePng: boolean = false): Promise<string | undefined> => {
+        if (!url) return undefined
+        
+        try {
+          const response = await fetch(url)
+          const blob = await response.blob()
+          
+          if (forcePng && blob.type !== 'image/png') {
+            // Convert to PNG using canvas
+            return new Promise((resolve, reject) => {
+              const img = new Image()
+              img.crossOrigin = 'anonymous'
+              
+              img.onload = () => {
+                const canvas = document.createElement('canvas')
+                canvas.width = img.width
+                canvas.height = img.height
+                const ctx = canvas.getContext('2d')
+                
+                if (!ctx) {
+                  reject(new Error('Failed to get canvas context'))
+                  return
+                }
+                
+                ctx.drawImage(img, 0, 0)
+                const pngDataUrl = canvas.toDataURL('image/png')
+                console.log(`✅ ${label} converted to PNG`)
+                resolve(pngDataUrl)
+              }
+              
+              img.onerror = () => reject(new Error(`Failed to load ${label}`))
+              img.src = URL.createObjectURL(blob)
+            })
+          }
+          
+          // Return as base64 data URI
+          return new Promise((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onloadend = () => resolve(reader.result as string)
+            reader.onerror = () => reject(new Error(`Failed to read ${label}`))
+            reader.readAsDataURL(blob)
+          })
+        } catch (error) {
+          console.error(`Failed to fetch/embed ${label}:`, error)
+          return url // Fallback to original URL
+        }
+      }
+
+      // Embed all images as PNG
+      if (companyData.branding?.logo_url) {
+        console.log('📥 Embedding logo...')
+        companyData.logo_data_uri = await fetchAndEmbed(companyData.branding.logo_url, 'logo', true)
+      }
+
+      if (companyData.branding?.qr_code_url) {
+        console.log('📥 Embedding QR code...')
+        companyData.qr_code_data_uri = await fetchAndEmbed(companyData.branding.qr_code_url, 'QR code', true)
+      }
+
+      if (companyData.branding?.signature_url) {
+        console.log('📥 Embedding signature...')
+        companyData.signature_data_uri = await fetchAndEmbed(companyData.branding.signature_url, 'signature', true)
+      }
+
+      console.log('✅ All images embedded successfully')
+      
+      // Fetch full invoice with items
       const fullInvoiceResult = await invoiceService.getInvoiceById(invoice.id)
-      
       if (!fullInvoiceResult.success || !fullInvoiceResult.data) {
-        throw new Error('Failed to fetch complete invoice details')
+        throw new Error('Failed to fetch invoice details')
       }
-      
       const fullInvoice = fullInvoiceResult.data
-      console.log('Full invoice with items:', fullInvoice)
-      console.log('Invoice items specifically:', fullInvoice.items)
-      console.log('Items array length:', fullInvoice.items?.length || 0)
       
-      // Get company settings with proper organization ID
-      const orgId = '00000000-0000-0000-0000-000000000001'
-      
-      // Fetch company settings via API
-      const response = await fetch(`/api/company-settings?orgId=${orgId}`)
-      const result = await response.json()
-      
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to fetch company settings')
+      // Convert invoice to document format
+      const documentData = {
+        metadata: {
+          documentType: 'invoice' as const,
+          documentNumber: invoice.invoice_number,
+          issueDate: invoice.issue_date,
+          dueDate: invoice.due_date,
+          currency: invoice.currency,
+          template: invoice.template || 'modern'
+        },
+        client: {
+          name: `${invoice.client?.first_name || ''} ${invoice.client?.last_name || ''}`.trim() || 'Unknown Client',
+          company: invoice.client?.company || '',
+          email: invoice.client?.email || '',
+          phone: invoice.client?.phone || '',
+          address: '',
+          city: '',
+          state: '',
+          pinCode: '',
+          gstin: ''
+        },
+        lineItems: fullInvoice.items?.map((item: any, index: number) => ({
+          id: item.id || `item-${index}`,
+          description: item.description || item.name || 'Item',
+          quantity: item.quantity || 1,
+          unit: item.unit || 'piece',
+          unitPrice: item.unit_price || item.price || 0,
+          total: (item.quantity || 1) * (item.unit_price || item.price || 0),
+          notes: item.notes || '',
+          taxable: true
+        })) || [],
+        totals: {
+          subtotal: invoice.subtotal || 0,
+          discountAmount: invoice.discount_amount || 0,
+          taxableAmount: invoice.subtotal || 0,
+          cgstAmount: 0,
+          sgstAmount: 0,
+          igstAmount: invoice.tax_amount || 0,
+          totalTaxAmount: invoice.tax_amount || 0,
+          roundOffAmount: 0,
+          finalTotal: invoice.total_amount || 0
+        },
+        taxConfig: {
+          gstRate: invoice.tax_rate || 18,
+          cgst: 0,
+          sgst: 0,
+          igst: invoice.tax_rate || 18
+        },
+        terms: invoice.payment_terms || invoice.terms || '',
+        status: invoice.status as 'draft' | 'sent' | 'rejected' | 'expired' | 'accepted' | 'converted'
       }
       
-      const companySettings = result.data || {
-        profile: { company_name: 'Your Company', organization_id: orgId },
-        banking: null,
-        branding: null
+      // Generate PDF using React PDF
+      const pdfBlob = await ReactPDFService.generatePDF(documentData, companyData)
+      
+      // Store PDF in CRM storage
+      const fileName = `Invoice-${invoice.invoice_number}-${new Date().toISOString().split('T')[0]}.pdf`
+      const storageResult = await documentStorage.storePDF(pdfBlob, {
+        documentType: 'invoice',
+        documentId: invoice.id,
+        documentNumber: invoice.invoice_number,
+        clientId: invoice.client_id,
+        projectId: invoice.project_id,
+        fileName,
+        mimeType: 'application/pdf'
+      })
+      
+      if (storageResult.success) {
+        console.log('PDF stored successfully:', storageResult.filePath)
       }
       
-      // Generate professional PDF with complete invoice data including items
-      const pdfBuffer = await professionalPDFService.generateInvoicePDF(fullInvoice, companySettings)
-      const blob = new Blob([pdfBuffer], { type: 'application/pdf' })
-      
-      // Download the PDF
-      const url = window.URL.createObjectURL(blob)
+      // Download PDF
+      const url = window.URL.createObjectURL(pdfBlob)
       const a = document.createElement('a')
       a.style.display = 'none'
       a.href = url
-      a.download = `invoice-${invoice.invoice_number}.pdf`
+      a.download = fileName
       
       document.body.appendChild(a)
       a.click()
@@ -215,12 +354,20 @@ export default function InvoicesPage() {
       window.URL.revokeObjectURL(url)
       document.body.removeChild(a)
       
-      toast.success("Professional PDF downloaded successfully!", {
-        description: "Your branded invoice with company details has been saved to downloads"
+      // Log activity
+      await activityLogger.logDocumentDownloaded(
+        'invoice',
+        invoice.id,
+        invoice.invoice_number,
+        'pdf'
+      )
+      
+      toast.success("PDF downloaded successfully!", {
+        description: "Your invoice has been saved to downloads and CRM storage"
       })
       
     } catch (error) {
-      console.error('Error downloading professional PDF:', error)
+      console.error('Failed to download PDF:', error)
       toast.error("Failed to download PDF", {
         description: error instanceof Error ? error.message : "Please try again or contact support"
       })
@@ -236,39 +383,50 @@ export default function InvoicesPage() {
 
   const handleMarkAsPaid = async (invoice: Invoice) => {
     try {
+      setMarkingPaidId(invoice.id)
+      // Optimistic UI: update local state first
+  setInvoices(prev => prev.map(inv => inv.id === invoice.id ? { ...inv, status: 'paid' } : inv))
       const result = await invoiceService.updateInvoicePaymentStatus(invoice.id, 'paid')
-      
       if (result.success) {
-        await fetchInvoices()
         toast.success('Invoice marked as paid')
+        // Optionally refetch to ensure consistency
+        fetchInvoices()
       } else {
         throw new Error(result.error || 'Failed to update payment status')
       }
     } catch (error) {
       console.error('Error updating payment status:', error)
       toast.error('Failed to update payment status')
+      // Revert optimistic change on failure
+      fetchInvoices()
+    } finally {
+      setMarkingPaidId(null)
     }
   }
 
   const confirmDelete = async () => {
     if (!selectedInvoice) return
-    
     try {
+      setDeletingId(selectedInvoice.id)
+      // Optimistic removal
+      setInvoices(prev => prev.filter(inv => inv.id !== selectedInvoice.id))
       const result = await invoiceService.deleteInvoice(selectedInvoice.id)
-      
       if (result.success) {
-        await fetchInvoices()
         toast.success('Invoice deleted successfully')
+        // Ensure sync
+        fetchInvoices()
       } else {
         throw new Error(result.error || 'Failed to delete invoice')
       }
     } catch (error) {
       console.error('Error deleting invoice:', error)
       toast.error('Failed to delete invoice')
+      fetchInvoices() // restore list
+    } finally {
+      setDeleteDialogOpen(false)
+      setSelectedInvoice(null)
+      setDeletingId(null)
     }
-    
-    setDeleteDialogOpen(false)
-    setSelectedInvoice(null)
   }
 
   const getStatusColor = (status: Invoice['status']) => {
@@ -614,9 +772,10 @@ export default function InvoicesPage() {
                     size="sm" 
                     className="flex flex-col items-center p-2 h-auto gap-1 text-xs text-red-600 hover:text-red-700"
                     onClick={() => handleDeleteInvoice(invoice)}
+                    disabled={deletingId === invoice.id}
                   >
-                    <Trash2 className="h-4 w-4" />
-                    <span>Delete</span>
+                    {deletingId === invoice.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                    <span>{deletingId === invoice.id ? 'Deleting' : 'Delete'}</span>
                   </Button>
 
                   {invoice.status !== 'paid' ? (
@@ -625,9 +784,10 @@ export default function InvoicesPage() {
                       size="sm" 
                       className="flex flex-col items-center p-2 h-auto gap-1 text-xs text-green-600 hover:text-green-700"
                       onClick={() => handleMarkAsPaid(invoice)}
+                      disabled={markingPaidId === invoice.id}
                     >
-                      <CreditCard className="h-4 w-4" />
-                      <span>Paid</span>
+                      {markingPaidId === invoice.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
+                      <span>{markingPaidId === invoice.id ? 'Saving' : 'Paid'}</span>
                     </Button>
                   ) : (
                     <Button 
@@ -664,19 +824,12 @@ export default function InvoicesPage() {
         />
 
         {/* Edit Invoice Dialog */}
-        {selectedInvoice && (
-          <EditInvoiceDialog
-            open={editDialogOpen}
-            onOpenChange={setEditDialogOpen}
-            invoice={selectedInvoice}
-            onSuccess={() => {
-              setEditDialogOpen(false)
-              setSelectedInvoice(null)
-              fetchInvoices()
-              toast.success('Invoice updated successfully')
-            }}
-          />
-        )}
+        <SimpleEditInvoiceDialog
+          open={editDialogOpen}
+          onOpenChange={setEditDialogOpen}
+          invoice={editingInvoice}
+          onSuccess={fetchInvoices}
+        />
 
         {/* View Invoice Dialog */}
         {selectedInvoice && (
@@ -684,6 +837,7 @@ export default function InvoicesPage() {
             open={viewDialogOpen}
             onOpenChange={setViewDialogOpen}
             invoice={selectedInvoice}
+            onRequestDelete={(inv) => { handleDeleteInvoice(inv); setViewDialogOpen(false); }}
           />
         )}
 
@@ -716,6 +870,15 @@ export default function InvoicesPage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* PDF Viewer Dialog */}
+        {viewingInvoice && (
+          <InvoicePDFViewerDialog
+            open={pdfViewerOpen}
+            onOpenChange={setPdfViewerOpen}
+            invoice={viewingInvoice}
+          />
+        )}
       </div>
     </DashboardLayout>
   )

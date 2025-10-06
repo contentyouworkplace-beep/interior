@@ -6,15 +6,17 @@ import type { Database } from '@/types/supabase'
 export async function GET(request: NextRequest) {
   try {
     const supabase = createClient()
-    
-    // Temporary: Use hardcoded user ID for testing
-    const userId = "4bdb74e7-7441-4ca0-9eb4-5ac3a73c22d6"
+    // Get authenticated user
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     
     // Query clients directly with the server supabase client
     const { data: clients, error } = await supabase
       .from('clients')
       .select('*')
-      .eq('user_id', userId)
+      .eq('user_id', user.id)
       .order('created_at', { ascending: false })
     
     if (error) {
@@ -41,9 +43,11 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const supabase = createClient()
-    
-    // Temporary: Use hardcoded user ID for testing
-    const userId = "4bdb74e7-7441-4ca0-9eb4-5ac3a73c22d6"
+    // Get authenticated user
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
 
     const body = await request.json()
 
@@ -57,7 +61,7 @@ export async function POST(request: NextRequest) {
 
     // Prepare client data for database
     const clientData: Database['public']['Tables']['clients']['Insert'] = {
-      user_id: userId,
+      user_id: user.id,
       first_name: body.first_name?.trim(),
       last_name: body.last_name?.trim(),
       email: body.email?.trim() || null,

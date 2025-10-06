@@ -8,7 +8,8 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Plus, Upload, X, FileImage, FileVideo, FileText, Camera } from "lucide-react"
+import { Progress } from "@/components/ui/progress"
+import { Plus, Upload, X, FileImage, FileVideo, FileText, Camera, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 
@@ -29,7 +30,10 @@ interface PortfolioFile {
 }
 
 interface AddPortfolioModalProps {
-  onSave: (data: { name: string; category: string; files: File[] }) => void
+  onSave: (
+    data: { name: string; category: string; files: File[] },
+    onProgress?: (uploaded: number, total: number, currentFile: string) => void
+  ) => void
 }
 
 export function AddPortfolioModal({ onSave }: AddPortfolioModalProps) {
@@ -39,6 +43,9 @@ export function AddPortfolioModal({ onSave }: AddPortfolioModalProps) {
   const [files, setFiles] = useState<PortfolioFile[]>([])
   const [dragActive, setDragActive] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
+  const [uploadingFileName, setUploadingFileName] = useState("")
+  const [uploadedCount, setUploadedCount] = useState(0)
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault()
@@ -67,12 +74,12 @@ export function AddPortfolioModal({ onSave }: AddPortfolioModalProps) {
   }
 
   const handleFiles = (newFiles: File[]) => {
-  const maxFileSize = 10 * 1024 * 1024 // 10MB
+  const maxFileSize = 100 * 1024 * 1024 // 100MB
     
     const validFiles = newFiles.filter(file => {
       if (file.size > maxFileSize) {
         toast.error(`File "${file.name}" is too large`, {
-          description: "Maximum file size is 10MB"
+          description: "Maximum file size is 100MB"
         })
         return false
       }
@@ -149,17 +156,32 @@ export function AddPortfolioModal({ onSave }: AddPortfolioModalProps) {
     }
 
     setIsSubmitting(true)
+    setUploadProgress(0)
+    setUploadedCount(0)
+    setUploadingFileName("")
+    
     try {
-      await onSave({
-        name: name.trim(),
-        category,
-        files: files.map(f => f.file)
-      })
+      await onSave(
+        {
+          name: name.trim(),
+          category,
+          files: files.map(f => f.file)
+        },
+        (uploaded, total, currentFile) => {
+          // Update progress state
+          setUploadedCount(uploaded)
+          setUploadingFileName(currentFile)
+          setUploadProgress((uploaded / total) * 100)
+        }
+      )
       
       // Reset form
       setName("")
       setCategory("")
       setFiles([])
+      setUploadProgress(0)
+      setUploadingFileName("")
+      setUploadedCount(0)
       setOpen(false)
     } catch (error) {
       console.error('Error saving portfolio:', error)
@@ -175,6 +197,9 @@ export function AddPortfolioModal({ onSave }: AddPortfolioModalProps) {
     setName("")
     setCategory("")
     setFiles([])
+    setUploadProgress(0)
+    setUploadingFileName("")
+    setUploadedCount(0)
   }
 
   return (
@@ -333,6 +358,34 @@ export function AddPortfolioModal({ onSave }: AddPortfolioModalProps) {
                     </CardContent>
                   </Card>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* Upload Progress Bar */}
+          {isSubmitting && (
+            <div className="space-y-3 p-4 bg-blue-50 dark:bg-blue-950 rounded-lg border border-blue-200 dark:border-blue-800">
+              <div className="flex items-center justify-between text-sm">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                  <span className="font-medium text-blue-900 dark:text-blue-100">
+                    Uploading files...
+                  </span>
+                </div>
+                <span className="text-blue-700 dark:text-blue-300 font-semibold">
+                  {uploadedCount}/{files.length}
+                </span>
+              </div>
+              
+              <Progress value={uploadProgress} className="h-2" />
+              
+              <div className="flex items-center justify-between text-xs text-blue-700 dark:text-blue-300">
+                <span className="truncate max-w-[60%]">
+                  {uploadingFileName ? `Uploading: ${uploadingFileName}` : 'Preparing...'}
+                </span>
+                <span className="font-medium">
+                  {Math.round(uploadProgress)}%
+                </span>
               </div>
             </div>
           )}

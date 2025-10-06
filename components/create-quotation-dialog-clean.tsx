@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,8 +11,8 @@ import { formatINR, RUPEE_SYMBOL } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Plus, Trash2, Calculator, Loader2 } from "lucide-react"
 import { useSettings } from "@/contexts/settings-context"
-import { BusinessSettingsService, type BusinessSettings } from "@/lib/services/business-settings-service"
 import { QuotationService, type CreateQuotationRequest } from "@/lib/services/quotation-service"
+import { createClient } from "@/lib/supabase/client"
 import { toast } from "sonner"
 
 interface CreateQuotationDialogProps {
@@ -43,13 +43,13 @@ export function CreateQuotationDialog({ open, onOpenChange, onSuccess }: CreateQ
   console.log('🔄 CreateQuotationDialog rendered - open:', open)
   
   const { gstRate } = useSettings()
-  const businessService = new BusinessSettingsService()
   const quotationService = new QuotationService()
+  const supabase = createClient()
   
-  const [businessSettings, setBusinessSettings] = useState<BusinessSettings | null>(null)
   const [clients, setClients] = useState<Client[]>([])
   const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const loadingToastId = useRef<string | number | null>(null)
   
   const [formData, setFormData] = useState({
     clientId: "",
@@ -87,7 +87,7 @@ export function CreateQuotationDialog({ open, onOpenChange, onSuccess }: CreateQ
     setLoading(true)
     try {
       await Promise.all([
-        loadBusinessSettings(),
+        loadCompanyTerms(),
         loadClients()
       ])
     } catch (error) {
@@ -97,18 +97,59 @@ export function CreateQuotationDialog({ open, onOpenChange, onSuccess }: CreateQ
     }
   }
 
-  const loadBusinessSettings = async () => {
+  const loadCompanyTerms = async () => {
     try {
-      const result = await businessService.getBusinessSettings()
-      if (result.success && result.data) {
-        setBusinessSettings(result.data)
+      console.log('📋 Loading company terms & conditions...')
+      
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        console.log('❌ No user found')
+        return
+      }
+
+      // Get user's organization from organization_members
+      const { data: orgMember } = await supabase
+        .from('organization_members')
+        .select('organization_id')
+        .eq('user_id', user.id)
+        .single()
+
+      if (!orgMember) {
+        console.log('❌ No organization found for user')
+        return
+      }
+
+      console.log('🏢 Organization ID:', orgMember.organization_id)
+
+      // Fetch terms from company_profiles table
+      const { data: companyProfile, error } = await supabase
+        .from('company_profiles')
+        .select('terms_and_conditions')
+        .eq('organization_id', orgMember.organization_id)
+        .maybeSingle()
+
+      if (error) {
+        console.error('❌ Error fetching company profile:', error)
+        return
+      }
+
+      console.log('✅ Company profile loaded:', companyProfile)
+
+      // Type cast to handle Supabase type generation issue
+      const profile = companyProfile as { terms_and_conditions?: string } | null
+      
+      if (profile && profile.terms_and_conditions) {
+        console.log('✅ Terms & Conditions found, setting in form')
         setFormData(prev => ({
           ...prev,
-          terms: result.data?.terms || "Quotation valid for 30 days from the date of issue."
+          terms: profile.terms_and_conditions || "Quotation valid for 30 days from the date of issue."
         }))
+      } else {
+        console.log('⚠️ No terms & conditions found, using default')
       }
     } catch (error) {
-      console.error('Error loading business settings:', error)
+      console.error('❌ Error loading company terms:', error)
     }
   }
 
@@ -186,7 +227,7 @@ export function CreateQuotationDialog({ open, onOpenChange, onSuccess }: CreateQ
       subtotal: 0,
       total: 0,
       notes: "",
-      terms: businessSettings?.terms || "Quotation valid for 30 days from the date of issue."
+      terms: "Quotation valid for 30 days from the date of issue."
     })
     setLineItems([{ id: "1", description: "", quantity: 1, unit_price: 0, amount: 0 }])
   }
@@ -201,7 +242,9 @@ export function CreateQuotationDialog({ open, onOpenChange, onSuccess }: CreateQ
     if (!formData.clientId) {
       console.log('❌ [CreateQuotationDialog] Validation failed: Missing client')
       toast.error("⚠️ Client Required", {
-        description: "Please select a client from the dropdown to create a quotation."
+        description: "Please select a client from the dropdown to create a quotation.",
+        dismissible: true,
+        duration: 4000
       })
       return
     }
@@ -209,7 +252,9 @@ export function CreateQuotationDialog({ open, onOpenChange, onSuccess }: CreateQ
     if (!formData.subject) {
       console.log('❌ [CreateQuotationDialog] Validation failed: Missing subject')
       toast.error("⚠️ Subject Required", {
-        description: "Please enter a descriptive subject/title for your quotation."
+        description: "Please enter a descriptive subject/title for your quotation.",
+        dismissible: true,
+        duration: 4000
       })
       return
     }
@@ -221,7 +266,9 @@ export function CreateQuotationDialog({ open, onOpenChange, onSuccess }: CreateQ
     if (lineItems.filter(item => item.description.trim()).length === 0) {
       console.log('❌ [CreateQuotationDialog] Validation failed: No line items')
       toast.error("⚠️ Items Required", {
-        description: "Please add at least one item with description and pricing to create a quotation."
+        description: "Please add at least one item with description and pricing to create a quotation.",
+        dismissible: true,
+        duration: 4000
       })
       return
     }
@@ -229,7 +276,9 @@ export function CreateQuotationDialog({ open, onOpenChange, onSuccess }: CreateQ
     // Additional validations
     if (formData.validUntil && formData.validUntil < formData.date) {
       toast.error("⚠️ Invalid Date Range", {
-        description: "Valid until date must be on or after the issue date."
+        description: "Valid until date must be on or after the issue date.",
+        dismissible: true,
+        duration: 4000
       })
       return
     }
@@ -241,7 +290,9 @@ export function CreateQuotationDialog({ open, onOpenChange, onSuccess }: CreateQ
     
     if (calculatedSubtotal <= 0) {
       toast.error("⚠️ Invalid Amount", {
-        description: "Total amount must be greater than zero. Please check your item prices."
+        description: "Total amount must be greater than zero. Please check your item prices.",
+        dismissible: true,
+        duration: 4000
       })
       return
     }
@@ -257,9 +308,13 @@ export function CreateQuotationDialog({ open, onOpenChange, onSuccess }: CreateQ
     console.log('✅ [CreateQuotationDialog] Validation passed, creating quotation...')
     setSubmitting(true)
     
-    // Show immediate feedback to user
-    toast.loading("Creating quotation...", {
-      description: "Please wait while we create your quotation."
+    // Show immediate feedback to user (keep reference to dismiss later)
+    try {
+      if (loadingToastId.current) toast.dismiss(loadingToastId.current)
+    } catch {}
+    loadingToastId.current = toast.loading("Creating quotation...", {
+      description: "Please wait while we create your quotation.",
+      dismissible: true
     })
     
     try {
@@ -299,23 +354,35 @@ export function CreateQuotationDialog({ open, onOpenChange, onSuccess }: CreateQ
         const quotationNumber = result.data?.quotation_number || 'N/A'
         const clientName = clients.find(c => c.id === formData.clientId)
         const clientDisplayName = clientName ? `${clientName.first_name} ${clientName.last_name}` : 'Selected Client'
-        
+        // Dismiss loading toast before success
+        try { if (loadingToastId.current) toast.dismiss(loadingToastId.current) } catch {}
+        loadingToastId.current = null
         toast.success(`🎉 Quotation Created Successfully!`, {
-          description: `Quotation ${quotationNumber} for ${clientDisplayName} has been created with total amount ${formatINR(calculatedTotal)}.`
+          description: `Quotation ${quotationNumber} for ${clientDisplayName} has been created with total amount ${formatINR(calculatedTotal)}.`,
+          dismissible: true,
+          duration: 3500
         })
         resetForm()
         onOpenChange(false)
         if (onSuccess) onSuccess()
       } else {
         console.log('❌ Quotation creation failed:', result.error)
+        try { if (loadingToastId.current) toast.dismiss(loadingToastId.current) } catch {}
+        loadingToastId.current = null
         toast.error("❌ Failed to Create Quotation", {
-          description: result.error || "There was an issue creating your quotation. Please try again or contact support if the problem persists."
+          description: result.error || "There was an issue creating your quotation. Please try again or contact support if the problem persists.",
+          dismissible: true,
+          duration: 5000
         })
       }
     } catch (error) {
       console.error('💥 Error creating quotation:', error)
+      try { if (loadingToastId.current) toast.dismiss(loadingToastId.current) } catch {}
+      loadingToastId.current = null
       toast.error("💥 Unexpected Error", {
-        description: "An unexpected error occurred while creating the quotation. Please check your internet connection and try again."
+        description: "An unexpected error occurred while creating the quotation. Please check your internet connection and try again.",
+        dismissible: true,
+        duration: 5000
       })
     } finally {
       setSubmitting(false)

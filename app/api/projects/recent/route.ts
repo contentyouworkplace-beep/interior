@@ -14,10 +14,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Fetch recent projects - simplified query to match current schema
+    // Fetch recent projects with real progress
     const { data: projects, error: projectsError } = await supabase
       .from('projects')
-      .select('id, name, status, updated_at, client_id')
+  .select('id, name, status, updated_at, client_id, completion_percentage, end_date')
       .eq('user_id', user.id)
       .order('updated_at', { ascending: false })
       .limit(6) // Get latest 6 projects
@@ -80,22 +80,26 @@ export async function GET(request: NextRequest) {
       const client = clientsData.find(c => c.id === project.client_id)
       const clientName = client ? `${client.first_name} ${client.last_name}` : 'Unknown Client'
       
-      // Generate reasonable defaults for missing columns
-      const progress = Math.floor(Math.random() * 40) + 30 // 30-70%
-      const priorities = ['high', 'medium', 'low']
-      const priority = priorities[Math.floor(Math.random() * priorities.length)]
-      
-      // Generate deadline (1-3 months from now)
-      const deadline = new Date()
-      deadline.setMonth(deadline.getMonth() + Math.floor(Math.random() * 3) + 1)
+      // Use real progress from the DB (fallback to 0 if null/undefined)
+      const progress = typeof (project as any).completion_percentage === 'number'
+        ? Math.max(0, Math.min(100, (project as any).completion_percentage as number))
+        : 0
+
+      // Priority is not modeled yet in this route; keep a stable low-risk default
+      const priority = 'low'
+
+      // Prefer an explicit end date if present; otherwise generate a gentle fallback
+      const deadlineDate: Date = (project as any).end_date
+        ? new Date((project as any).end_date)
+        : (() => { const d = new Date(); d.setMonth(d.getMonth() + 1); return d })()
       
       return {
         id: project.id,
         name: project.name,
         client: clientName,
         status: project.status || 'Planning',
-        progress: progress,
-        deadline: deadline.toISOString().split('T')[0],
+        progress,
+        deadline: deadlineDate.toISOString().split('T')[0],
         priority: priority,
         updatedAt: project.updated_at
       }

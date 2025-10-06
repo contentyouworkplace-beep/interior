@@ -15,33 +15,26 @@ import {
   Plus,
   Search,
   Filter,
-  MoreHorizontal,
   FileText,
   IndianRupee,
   Calendar,
   Download,
-  Send,
   Edit,
-  Copy,
   Trash2,
   Eye,
   CheckCircle,
   XCircle,
   Clock,
   AlertCircle,
-  Users,
-  TrendingUp,
-  Receipt,
   Loader2
 } from "lucide-react"
-import { useToast } from "@/hooks/use-toast"
 import { toast } from "sonner"
 import { QuotationService, Quotation } from "@/lib/services/quotation-service"
 import { InvoiceService } from "@/lib/services/invoice-service"
 import { CreateQuotationDialog } from "@/components/create-quotation-dialog-clean"
-import { EditQuotationDialog } from "@/components/edit-quotation-dialog"
-import { ShareQuotationDialog } from "@/components/share-quotation-dialog" 
+import { SimpleEditQuotationDialog } from "@/components/simple-edit-quotation-dialog"
 import { DeleteConfirmationDialog } from "@/components/delete-confirmation-dialog"
+import { QuotationPDFViewerDialog } from "@/components/quotation-pdf-viewer-dialog"
 
 export default function QuotationsPage() {
   const [searchQuery, setSearchQuery] = useState("")
@@ -52,6 +45,8 @@ export default function QuotationsPage() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [editingQuotation, setEditingQuotation] = useState<Quotation | null>(null)
+  const [pdfViewerOpen, setPdfViewerOpen] = useState(false)
+  const [viewingQuotation, setViewingQuotation] = useState<Quotation | null>(null)
   const [viewDialogOpen, setViewDialogOpen] = useState(false)
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
@@ -61,12 +56,7 @@ export default function QuotationsPage() {
 
   const router = useRouter()
   
-  // Test function for toasts
-  const testToast = () => {
-    toast.success("🎉 Toast Test Successful!", {
-      description: "Sonner toasts are working correctly!"
-    })
-  }
+  
   
   const quotationService = new QuotationService()
   const invoiceService = new InvoiceService()
@@ -109,12 +99,11 @@ export default function QuotationsPage() {
       })
       
       // Import services
-      const { PDFGenerationService } = await import('@/lib/services/pdf-generation-service')
+      const { ReactPDFService } = await import('@/lib/services/react-pdf-service')
       const { CompanyDataService } = await import('@/lib/services/company-data-service')
       const { documentStorage } = await import('@/lib/services/document-storage-service')
       const { activityLogger } = await import('@/lib/services/activity-logging-service')
       
-      const pdfService = new PDFGenerationService()
       const companyService = new CompanyDataService()
       
       // Get company data
@@ -176,8 +165,8 @@ export default function QuotationsPage() {
         status: quotation.status === 'approved' ? 'accepted' as const : quotation.status as 'draft' | 'sent' | 'rejected' | 'expired' | 'accepted' | 'converted'
       }
       
-      // Generate PDF
-      const pdfBlob = await pdfService.generateDocument(documentData, companyData)
+      // Generate PDF using React PDF
+      const pdfBlob = await ReactPDFService.generatePDF(documentData, companyData)
       
       // Store PDF in CRM storage
       const fileName = `Quotation-${quotation.quotation_number}-${new Date().toISOString().split('T')[0]}.pdf`
@@ -235,7 +224,7 @@ export default function QuotationsPage() {
         client_id: quotation.client_id,
         project_id: quotation.project_id,
         title: `Copy of ${quotation.title}`,
-        status: 'draft' as const,
+        status: 'pending' as const,
         issue_date: new Date().toISOString().split('T')[0],
         valid_until: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days from now
         subtotal: quotation.subtotal,
@@ -266,8 +255,14 @@ export default function QuotationsPage() {
   }
 
   const handleEditQuotation = (quotation: Quotation) => {
-    // Navigate to the new dynamic page for editing
-    router.push(`/create-document?type=quotation&id=${quotation.id}`)
+    // Open edit dialog popup
+    setEditingQuotation(quotation)
+    setEditDialogOpen(true)
+  }
+
+  const handleViewQuotation = (quotation: Quotation) => {
+    setViewingQuotation(quotation)
+    setPdfViewerOpen(true)
   }
 
   const handleConvertToInvoice = async (quotation: Quotation) => {
@@ -306,6 +301,38 @@ export default function QuotationsPage() {
     }
   }
 
+  const handleApproveQuotation = async (quotation: Quotation) => {
+    try {
+      const result = await quotationService.updateQuotationStatus(quotation.id, 'approved')
+      
+      if (result.success) {
+        toast.success(`Quotation ${quotation.quotation_number} has been approved.`)
+        await loadQuotations()
+      } else {
+        throw new Error(result.error)
+      }
+    } catch (error) {
+      console.error('Error approving quotation:', error)
+      toast.error("Failed to approve quotation")
+    }
+  }
+
+  const handleStatusUpdate = async (quotation: Quotation, newStatus: 'pending' | 'approved' | 'rejected') => {
+    try {
+      const result = await quotationService.updateQuotationStatus(quotation.id, newStatus)
+      
+      if (result.success) {
+        toast.success(`Quotation ${quotation.quotation_number} marked as ${newStatus}`)
+        await loadQuotations()
+      } else {
+        throw new Error(result.error)
+      }
+    } catch (error) {
+      console.error('Error updating status:', error)
+      toast.error("Failed to update status")
+    }
+  }
+
   const handleShareQuotation = async (quotation: Quotation) => {
     try {
       // For now, copy quotation URL to clipboard
@@ -325,18 +352,13 @@ export default function QuotationsPage() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case "draft":
-        return "bg-gray-100 text-gray-800 border-gray-200"
-      case "sent":
-        return "bg-blue-100 text-blue-800 border-blue-200"
       case "approved":
         return "bg-green-100 text-green-800 border-green-200"
       case "rejected":
         return "bg-red-100 text-red-800 border-red-200"
-      case "expired":
-        return "bg-orange-100 text-orange-800 border-orange-200"
+      case "pending":
       default:
-        return "bg-gray-100 text-gray-800 border-gray-200"
+        return "bg-yellow-100 text-yellow-800 border-yellow-200"
     }
   }
 
@@ -346,11 +368,7 @@ export default function QuotationsPage() {
         return <CheckCircle className="h-4 w-4" />
       case "rejected":
         return <XCircle className="h-4 w-4" />
-      case "expired":
-        return <AlertCircle className="h-4 w-4" />
-      case "sent":
-        return <Send className="h-4 w-4" />
-      case "draft":
+      case "pending":
       default:
         return <Clock className="h-4 w-4" />
     }
@@ -381,8 +399,8 @@ export default function QuotationsPage() {
       color: "text-blue-600",
     },
     {
-      title: "Draft & Sent",
-      value: quotations.filter((q) => q.status === "draft" || q.status === "sent").length.toString(),
+      title: "Pending",
+      value: quotations.filter((q) => q.status === "pending" || !q.status).length.toString(),
       icon: Clock,
       color: "text-yellow-600",
     },
@@ -447,22 +465,17 @@ export default function QuotationsPage() {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent>
                   <DropdownMenuItem onClick={() => setSelectedFilter("all")}>All</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setSelectedFilter("draft")}>Draft</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setSelectedFilter("sent")}>Sent</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setSelectedFilter("pending")}>Pending</DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setSelectedFilter("approved")}>Approved</DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setSelectedFilter("rejected")}>Rejected</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setSelectedFilter("expired")}>Expired</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
 
             <div className="flex space-x-2">
-              <Button onClick={() => router.push('/create-document?type=quotation')}>
+              <Button onClick={() => setCreateDialogOpen(true)}>
                 <Plus className="h-4 w-4 mr-2" />
                 New Quotation
-              </Button>
-              <Button variant="outline" onClick={testToast}>
-                Test Toast
               </Button>
             </div>
           </div>
@@ -525,49 +538,49 @@ export default function QuotationsPage() {
       {!loading && !error && (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
           {filteredData.map((item) => (
-            <Card key={item.id} className="group relative border border-gray-200 hover:border-gray-300 hover:shadow-xl transition-all duration-300 flex flex-col h-full overflow-hidden bg-white">
-              <CardHeader className="pb-4 bg-gradient-to-r from-slate-50 to-gray-50 border-b border-gray-100">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-2 min-w-0 flex-1">
-                    <CardTitle className="text-xl font-bold text-gray-900 truncate tracking-tight">
+            <Card key={item.id} className="group relative border border-gray-200 hover:border-gray-300 hover:shadow-lg transition-all duration-300 flex flex-col h-full overflow-hidden bg-white">
+              <CardHeader className="pb-3 bg-gradient-to-r from-slate-50 to-gray-50 border-b border-gray-100">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="space-y-1 min-w-0 flex-1">
+                    <CardTitle className="text-lg font-bold text-gray-900 truncate tracking-tight">
                       {item.quotation_number}
                     </CardTitle>
-                    <p className="text-base font-medium text-gray-700 truncate">
+                    <p className="text-sm font-medium text-gray-700 truncate">
                       {item.client ? `${item.client.first_name} ${item.client.last_name}` : 'No client'}
                     </p>
-                    <p className="text-sm text-gray-500 truncate font-medium">
+                    <p className="text-xs text-gray-500 truncate">
                       {item.project?.name || item.title}
                     </p>
                   </div>
 
-                  <div className="flex items-center space-x-2 flex-shrink-0">
-                    <Badge className={`${getStatusColor(item.status)} flex items-center space-x-1 px-3 py-1 text-xs font-semibold`}>
-                      {getStatusIcon(item.status)}
-                      <span className="capitalize">{item.status}</span>
+                  <div className="flex-shrink-0">
+                    <Badge className={`${getStatusColor(item.status || 'pending')} flex items-center space-x-1 px-2 py-1 text-xs font-semibold`}>
+                      {getStatusIcon(item.status || 'pending')}
+                      <span className="capitalize">{item.status || 'pending'}</span>
                     </Badge>
                   </div>
                 </div>
               </CardHeader>
 
-              <CardContent className="flex-1 flex flex-col p-6">
+              <CardContent className="flex-1 flex flex-col p-4">
                 {/* Financial Information */}
-                <div className="space-y-4 mb-6">
-                  <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                <div className="space-y-2 mb-3">
+                  <div className="bg-gray-50 rounded-lg p-3 space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-gray-600">Subtotal:</span>
-                      <span className="text-sm font-semibold text-gray-800">
+                      <span className="text-xs font-medium text-gray-600">Subtotal:</span>
+                      <span className="text-xs font-semibold text-gray-800">
                         {quotationService.formatCurrency(item.subtotal, item.currency)}
                       </span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-gray-600">GST ({item.tax_rate}%):</span>
-                      <span className="text-sm font-semibold text-gray-800">
+                      <span className="text-xs font-medium text-gray-600">GST ({item.tax_rate}%):</span>
+                      <span className="text-xs font-semibold text-gray-800">
                         {quotationService.formatCurrency(item.tax_amount, item.currency)}
                       </span>
                     </div>
                     <div className="flex items-center justify-between pt-2 border-t border-gray-200">
-                      <span className="text-base font-bold text-gray-900">Total:</span>
-                      <span className="text-lg font-bold text-blue-600">
+                      <span className="text-sm font-bold text-gray-900">Total:</span>
+                      <span className="text-base font-bold text-blue-600">
                         {quotationService.formatCurrency(item.total_amount, item.currency)}
                       </span>
                     </div>
@@ -575,9 +588,9 @@ export default function QuotationsPage() {
                 </div>
 
                 {/* Statistics */}
-                <div className="grid grid-cols-2 gap-4 py-4 mb-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg">
+                <div className="grid grid-cols-2 gap-3 py-2 mb-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg">
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-blue-600">{item.items?.length || 0}</p>
+                    <p className="text-xl font-bold text-blue-600">{item.items?.length || 0}</p>
                     <p className="text-xs font-medium text-gray-600 uppercase tracking-wide">Items</p>
                   </div>
                   <div className="text-center">
@@ -591,100 +604,87 @@ export default function QuotationsPage() {
                   </div>
                 </div>
 
-                {/* Valid Until - Pushed to bottom */}
-                <div className="flex items-center justify-between p-3 bg-amber-50 rounded-lg border border-amber-200 mt-auto">
-                  <span className="text-sm font-medium text-amber-800">Valid until:</span>
+                {/* Valid Until */}
+                <div className="flex items-center justify-between p-2 bg-amber-50 rounded-lg border border-amber-200 mb-3">
+                  <span className="text-xs font-medium text-amber-800">Valid until:</span>
                   <div className="flex items-center text-amber-700">
-                    <Calendar className="h-4 w-4 mr-2" />
-                    <span className="text-sm font-semibold">
+                    <Calendar className="h-3 w-3 mr-1" />
+                    <span className="text-xs font-semibold">
                       {new Date(item.valid_until).toLocaleDateString('en-IN')}
                     </span>
                   </div>
                 </div>
 
-                {/* Action Buttons */}
-                <div className="grid grid-cols-2 gap-3 pt-4 border-t border-gray-200 mt-4">
-                  {/* Primary Actions Row */}
+                {/* Action Buttons - 2x3 Grid */}
+                <div className="grid grid-cols-3 gap-2 pt-3 border-t border-gray-200 mt-auto">
+                  {/* Row 1: View | Edit | Download */}
                   <Button 
                     variant="outline" 
                     size="sm" 
-                    className="flex items-center justify-center gap-2 h-10 font-medium border-gray-300 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-600 transition-all"
-                    onClick={() => router.push(`/create-document?type=quotation&id=${item.id}&mode=view`)}
+                    className="flex items-center justify-center gap-1 h-9 text-xs font-medium border-gray-300 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-600 transition-all"
+                    onClick={() => handleViewQuotation(item)}
                   >
-                    <Eye className="h-4 w-4" />
+                    <Eye className="h-3.5 w-3.5" />
                     <span>View</span>
                   </Button>
 
                   <Button 
                     variant="outline" 
                     size="sm" 
-                    className="flex items-center justify-center gap-2 h-10 font-medium border-gray-300 hover:border-green-400 hover:bg-green-50 hover:text-green-600 transition-all"
+                    className="flex items-center justify-center gap-1 h-9 text-xs font-medium border-gray-300 hover:border-green-400 hover:bg-green-50 hover:text-green-600 transition-all"
                     onClick={() => handleEditQuotation(item)}
                   >
-                    <Edit className="h-4 w-4" />
+                    <Edit className="h-3.5 w-3.5" />
                     <span>Edit</span>
                   </Button>
+
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="flex items-center justify-center gap-1 h-9 text-xs font-medium border-gray-300 hover:border-purple-400 hover:bg-purple-50 hover:text-purple-600 transition-all"
+                    onClick={() => handleDownloadPDF(item)}
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    <span>PDF</span>
+                  </Button>
                   
-                  {/* Secondary Actions Row */}
-                  <ShareQuotationDialog quotation={item}>
+                  {/* Row 2: Approve | Reject | Delete */}
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="flex items-center justify-center gap-1 h-9 text-xs font-medium border-gray-300 hover:border-green-400 hover:bg-green-50 hover:text-green-600 transition-all disabled:opacity-50"
+                    onClick={() => handleStatusUpdate(item, 'approved')}
+                    disabled={item.status === 'approved'}
+                  >
+                    <CheckCircle className="h-3.5 w-3.5" />
+                    <span>Approve</span>
+                  </Button>
+
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="flex items-center justify-center gap-1 h-9 text-xs font-medium border-gray-300 hover:border-red-400 hover:bg-red-50 hover:text-red-600 transition-all disabled:opacity-50"
+                    onClick={() => handleStatusUpdate(item, 'rejected')}
+                    disabled={item.status === 'rejected'}
+                  >
+                    <XCircle className="h-3.5 w-3.5" />
+                    <span>Reject</span>
+                  </Button>
+
+                  <DeleteConfirmationDialog
+                    title="Delete Quotation"
+                    description={`Are you sure you want to delete quotation ${item.quotation_number}? This action cannot be undone.`}
+                    onConfirm={() => handleDeleteQuotation(item.id)}
+                  >
                     <Button 
                       variant="outline" 
                       size="sm" 
-                      className="flex items-center justify-center gap-2 h-10 font-medium border-gray-300 hover:border-purple-400 hover:bg-purple-50 hover:text-purple-600 transition-all"
+                      className="flex items-center justify-center gap-1 h-9 text-xs font-medium border-gray-300 hover:border-red-400 hover:bg-red-50 hover:text-red-600 transition-all w-full"
                     >
-                      <Send className="h-4 w-4" />
-                      <span>Share</span>
+                      <Trash2 className="h-3.5 w-3.5" />
+                      <span>Delete</span>
                     </Button>
-                  </ShareQuotationDialog>
-
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        className="flex items-center justify-center gap-2 h-10 font-medium border-gray-300 hover:border-gray-400 hover:bg-gray-50 transition-all"
-                      >
-                        <MoreHorizontal className="h-4 w-4" />
-                        <span>More</span>
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="min-w-[200px]">
-                      <DropdownMenuItem 
-                        onClick={() => handleDownloadPDF(item)}
-                        className="flex items-center gap-3 p-3 font-medium hover:bg-blue-50 focus:bg-blue-50"
-                      >
-                        <Download className="h-4 w-4 text-blue-600" />
-                        <span>Download PDF</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem 
-                        onClick={() => handleConvertToInvoice(item)}
-                        className="flex items-center gap-3 p-3 font-medium hover:bg-green-50 focus:bg-green-50"
-                      >
-                        <Receipt className="h-4 w-4 text-green-600" />
-                        <span>Convert to Invoice</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem 
-                        onClick={() => handleDuplicateQuotation(item)}
-                        className="flex items-center gap-3 p-3 font-medium hover:bg-yellow-50 focus:bg-yellow-50"
-                      >
-                        <Copy className="h-4 w-4 text-yellow-600" />
-                        <span>Duplicate</span>
-                      </DropdownMenuItem>
-                      <DeleteConfirmationDialog
-                        title="Delete Quotation"
-                        description={`Are you sure you want to delete quotation ${item.quotation_number}? This action cannot be undone.`}
-                        onConfirm={() => handleDeleteQuotation(item.id)}
-                      >
-                        <DropdownMenuItem 
-                          className="flex items-center gap-3 p-3 font-medium text-red-600 hover:bg-red-50 focus:bg-red-50"
-                          onSelect={(e) => e.preventDefault()}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          <span>Delete</span>
-                        </DropdownMenuItem>
-                      </DeleteConfirmationDialog>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  </DeleteConfirmationDialog>
                 </div>
               </CardContent>
             </Card>
@@ -713,7 +713,7 @@ export default function QuotationsPage() {
       
       {/* Edit Quotation Dialog */}
       {editingQuotation && (
-        <EditQuotationDialog
+        <SimpleEditQuotationDialog
           open={editDialogOpen}
           onOpenChange={setEditDialogOpen}
           quotation={editingQuotation}
@@ -722,6 +722,15 @@ export default function QuotationsPage() {
             setEditDialogOpen(false)
             setEditingQuotation(null)
           }}
+        />
+      )}
+      
+      {/* PDF Viewer Dialog */}
+      {viewingQuotation && (
+        <QuotationPDFViewerDialog
+          open={pdfViewerOpen}
+          onOpenChange={setPdfViewerOpen}
+          quotation={viewingQuotation}
         />
       )}
       

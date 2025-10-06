@@ -63,6 +63,36 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
+  // Check if user is admin
+  const isAdmin = user?.email === 'admin@goplnr.com'
+
+  // Redirect admin away from CRM routes to admin panel
+  const crmRoutes = ['/dashboard', '/clients', '/projects', '/invoices', '/quotations', '/expenses', '/inventory', '/team', '/calendar', '/reports', '/settings', '/notifications']
+  
+  if (isAdmin && crmRoutes.some(route => request.nextUrl.pathname.startsWith(route))) {
+    return NextResponse.redirect(new URL('/admin', request.url))
+  }
+
+  // Check if user's subscription has expired (skip for admin)
+  if (user && !isAdmin && user.user_metadata?.expires_at) {
+    const expiresAt = new Date(user.user_metadata.expires_at)
+    const now = new Date()
+    
+    if (expiresAt < now) {
+      // Subscription expired - block access to protected routes
+      const protectedRoutes = ['/dashboard', '/clients', '/projects', '/invoices', '/quotations', '/expenses', '/inventory', '/team', '/calendar', '/reports', '/settings', '/notifications']
+      
+      if (protectedRoutes.some(route => request.nextUrl.pathname.startsWith(route))) {
+        // Sign out the user
+        await supabase.auth.signOut()
+        // Redirect to login with expiry message
+        const url = new URL('/', request.url)
+        url.searchParams.set('expired', 'true')
+        return NextResponse.redirect(url)
+      }
+    }
+  }
+
   // Protect authenticated routes
   const protectedRoutes = ['/dashboard', '/clients', '/projects', '/invoices', '/quotations', '/expenses', '/inventory', '/team', '/calendar', '/reports', '/settings', '/notifications', '/admin', '/super-admin']
   
@@ -72,7 +102,9 @@ export async function middleware(request: NextRequest) {
 
   // Redirect authenticated users from login page
   if (request.nextUrl.pathname === '/' && user) {
-    return NextResponse.redirect(new URL('/dashboard', request.url))
+    // Admin goes to admin panel, regular users to dashboard
+    const redirectUrl = isAdmin ? '/admin' : '/dashboard'
+    return NextResponse.redirect(new URL(redirectUrl, request.url))
   }
 
   return response

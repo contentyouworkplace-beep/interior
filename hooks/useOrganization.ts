@@ -24,7 +24,38 @@ export function useOrganization() {
           .maybeSingle()
         
         if (error) throw error
-        if (!data?.organization_id) throw new Error('No organization found for user')
+        
+        if (!data?.organization_id) {
+          // Try to auto-create organization membership for this user
+          console.log('No organization found for user, attempting auto-setup...')
+          
+          try {
+            const response = await fetch('/api/dev/setup-auto-organization', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' }
+            })
+            
+            if (response.ok) {
+              // Retry fetching organization after setup
+              const { data: retryData, error: retryError } = await supabase
+                .from('organization_members')
+                .select('organization_id')
+                .eq('user_id', user.id)
+                .limit(1)
+                .maybeSingle()
+              
+              if (!retryError && retryData?.organization_id) {
+                setOrgId(retryData.organization_id)
+                return
+              }
+            }
+          } catch (setupError) {
+            console.log('Auto-setup failed:', setupError)
+          }
+          
+          throw new Error('No organization found for user. Please contact support.')
+        }
+        
         setOrgId(data.organization_id)
         
       } catch (e: any) {

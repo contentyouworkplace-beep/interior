@@ -23,6 +23,7 @@ import { useAuth } from "@/contexts/auth-context"
 import { useOrganization } from "@/hooks/useOrganization"
 import CompanyPageNew from "./CompanyPageNew"
 import { SecurityService } from "@/lib/services/security-service"
+import { PlanTab } from "@/components/settings/plan-tab"
 // SaveProgressDialog and TemplatePreviewModal were only used by legacy business settings; removed
 
 const templateOptions = [
@@ -412,8 +413,8 @@ export default function SettingsPage() {
         <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="company">Company</TabsTrigger>
+          <TabsTrigger value="plan">Plan</TabsTrigger>
           <TabsTrigger value="security">Security</TabsTrigger>
-          <TabsTrigger value="billing">Billing</TabsTrigger>
         </TabsList>
 
         <TabsContent value="profile" className="space-y-6">
@@ -663,7 +664,9 @@ VALUES ('00000000-0000-0000-0000-000000000001', '4bdb74e7-7441-4ca0-9eb4-5ac3a73
           )}
         </TabsContent>
 
-
+        <TabsContent value="plan" className="space-y-6">
+          <PlanTab />
+        </TabsContent>
 
         <TabsContent value="security" className="space-y-6">
           {/* Password Change Section */}
@@ -859,81 +862,6 @@ VALUES ('00000000-0000-0000-0000-000000000001', '4bdb74e7-7441-4ca0-9eb4-5ac3a73
           </Card>
 
         </TabsContent>
-
-        <TabsContent value="billing" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <CreditCard className="h-5 w-5" />
-                Billing & Subscription
-              </CardTitle>
-              <CardDescription>Your current subscription plan details</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Current Plan */}
-              <div className="p-6 border rounded-lg bg-gradient-to-r from-blue-50 to-indigo-50">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-xl font-bold text-blue-900">Professional Plan</h3>
-                    <p className="text-sm text-blue-700 mt-1">
-                      Active subscription with full access to all features
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-3xl font-bold text-blue-900">₹ 2,499</p>
-                    <p className="text-sm text-blue-700">per month</p>
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
-                  <div className="bg-white p-4 rounded-lg">
-                    <h4 className="font-medium text-gray-900">Plan Status</h4>
-                    <p className="text-sm text-gray-600 mt-1">Active</p>
-                  </div>
-                  <div className="bg-white p-4 rounded-lg">
-                    <h4 className="font-medium text-gray-900">Next Billing Date</h4>
-                    <p className="text-sm text-gray-600 mt-1">January 15, 2026</p>
-                  </div>
-                  <div className="bg-white p-4 rounded-lg">
-                    <h4 className="font-medium text-gray-900">Validity</h4>
-                    <p className="text-sm text-gray-600 mt-1">Until Jan 15, 2026</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Plan Features */}
-              <div className="space-y-4">
-                <h4 className="font-medium">Plan Features</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {[
-                    "Unlimited Projects",
-                    "Advanced Templates", 
-                    "PDF Generation",
-                    "Client Management",
-                    "Team Collaboration",
-                    "Priority Support",
-                    "Custom Branding",
-                    "Analytics & Reports"
-                  ].map((feature, index) => (
-                    <div key={index} className="flex items-center gap-2">
-                      <CheckCircle className="h-4 w-4 text-green-500" />
-                      <span className="text-sm">{feature}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Actions */}
-              <div className="pt-4 text-center">
-                <p className="text-sm text-gray-600">
-                  Have a Suggestion? Share it with us: <a href="mailto:support@goplnr.com" className="text-blue-600 hover:underline">support@goplnr.com</a>
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-
 
         <TabsContent value="tax" className="space-y-6">
           <Card>

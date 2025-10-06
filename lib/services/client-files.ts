@@ -289,16 +289,17 @@ export class ClientFileService {
         return { success: false, error: result.error }
       }
 
-      // Create a temporary link element to force download
+      // Fetch the file as a blob and trigger download without opening a new tab
+      const response = await fetch(result.url)
+      const blob = await response.blob()
+      const objectUrl = URL.createObjectURL(blob)
       const link = document.createElement('a')
-      link.href = result.url
+      link.href = objectUrl
       link.download = result.filename || 'download'
-      link.target = '_blank'
-      
-      // Add link to DOM temporarily and click it
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
+      URL.revokeObjectURL(objectUrl)
 
       return { success: true }
     } catch (error) {
@@ -315,16 +316,17 @@ export class ClientFileService {
       console.log('Downloading file from storage:', file.filename)
       
       if (!file.storage_path) {
-        // Use the file URL directly
+        // Use the file URL directly via blob to avoid opening a new tab
+        const response = await fetch(file.file_url)
+        const blob = await response.blob()
+        const objectUrl = URL.createObjectURL(blob)
         const link = document.createElement('a')
-        link.href = file.file_url
+        link.href = objectUrl
         link.download = file.filename
-        link.target = '_blank'
-        
         document.body.appendChild(link)
         link.click()
         document.body.removeChild(link)
-        
+        URL.revokeObjectURL(objectUrl)
         return { success: true }
       }
 
@@ -338,15 +340,17 @@ export class ClientFileService {
         return { success: false, error: 'Failed to generate download link' }
       }
 
-      // Create download link
-      const link = document.createElement('a')
-      link.href = signedUrl.signedUrl
-      link.download = file.filename
-      link.target = '_blank'
-      
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
+  // Download via signed URL as blob, then trigger save
+  const response = await fetch(signedUrl.signedUrl)
+  const blob = await response.blob()
+  const objectUrl = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = file.filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(objectUrl)
 
       return { success: true }
     } catch (error) {

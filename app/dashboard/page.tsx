@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import Link from "next/link"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -16,11 +17,11 @@ import { format } from "date-fns"
 import { AddScheduleTaskDialog } from "@/components/add-schedule-task-dialog"
 import { SimpleAddTaskDialog } from "@/components/simple-add-task-dialog"
 import { AddClientDialog } from "@/components/add-client-dialog"
-import { CreateQuotationDialog } from "@/components/create-quotation-dialog"
+import { CreateQuotationDialog } from "@/components/create-quotation-dialog-clean"
 
 interface DashboardMetrics {
   totalClients: number
-  quotationsSent: number
+  quotationsCreated: number // total quotations created (any status: draft/approved/rejected)
   pendingPayments: number
   expensesThisMonth: number
 }
@@ -50,7 +51,7 @@ export default function DashboardPage() {
   const [metricsError, setMetricsError] = useState<string | null>(null)
   const [metrics, setMetrics] = useState<DashboardMetrics>({
     totalClients: 0,
-    quotationsSent: 0,
+    quotationsCreated: 0,
     pendingPayments: 0,
     expensesThisMonth: 0
   })
@@ -81,7 +82,7 @@ export default function DashboardPage() {
       if (data.success) {
         setMetrics({
           totalClients: data.totalClients,
-          quotationsSent: data.quotationsSent,
+          quotationsCreated: data.quotationsCreated ?? data.quotationsSent, // backward compatibility
           pendingPayments: data.pendingPayments,
           expensesThisMonth: data.expensesThisMonth
         })
@@ -104,7 +105,7 @@ export default function DashboardPage() {
       // Fallback to mock data for development
       setMetrics({
         totalClients: 28,
-        quotationsSent: 15,
+        quotationsCreated: 15,
         pendingPayments: 1250000,
         expensesThisMonth: 185000
       })
@@ -274,6 +275,20 @@ export default function DashboardPage() {
     }
   }
 
+  const deleteTask = async (taskId: string) => {
+    const prev = tasks
+    try {
+      setTasks(tasks.filter(t => t.id !== taskId))
+      const response = await fetch(`/api/tasks/${taskId}`, { method: 'DELETE' })
+      if (!response.ok) {
+        throw new Error('Failed to delete task')
+      }
+    } catch (err) {
+      console.error('Delete task failed:', err)
+      setTasks(prev)
+    }
+  }
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case "In Progress":
@@ -377,7 +392,7 @@ export default function DashboardPage() {
                   <div className="space-y-1 sm:space-y-2">
                     <p className="text-xs sm:text-sm font-medium text-muted-foreground">Clients</p>
                     <p className="text-lg sm:text-xl font-bold text-foreground">{metrics.totalClients}</p>
-                    <p className="text-xs text-muted-foreground">Total active clients</p>
+                    <p className="text-xs text-muted-foreground">Total clients</p>
                   </div>
                   <div className="p-2 sm:p-3 rounded-full bg-blue-100">
                     <Users className="h-5 w-5 sm:h-6 sm:w-6 text-blue-600" />
@@ -386,14 +401,16 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
 
-            {/* Quotations Sent Card */}
+            {/* Quotations Created Card */}
             <Card className="border-border/50 hover:shadow-md transition-shadow">
               <CardContent className="p-4 sm:p-6">
                 <div className="flex items-center justify-between">
                   <div className="space-y-1 sm:space-y-2">
-                    <p className="text-xs sm:text-sm font-medium text-muted-foreground">Quotations Sent</p>
-                    <p className="text-lg sm:text-xl font-bold text-foreground">{metrics.quotationsSent}</p>
-                    <p className="text-xs text-muted-foreground">This month</p>
+                    <p className="text-xs sm:text-sm font-medium text-muted-foreground">Quotations Created</p>
+                    <p className="text-lg sm:text-xl font-bold text-foreground">{metrics.quotationsCreated}</p>
+                    <p className="text-xs text-muted-foreground">
+                      All statuses{metrics.quotationsCreated === 0 && ' (none found this user)'}
+                    </p>
                   </div>
                   <div className="p-2 sm:p-3 rounded-full bg-green-100">
                     <FileText className="h-5 w-5 sm:h-6 sm:w-6 text-green-600" />
@@ -447,8 +464,8 @@ export default function DashboardPage() {
                   <CardTitle>Recent Projects</CardTitle>
                   <CardDescription>Latest projects sorted by most recent activity</CardDescription>
                 </div>
-                <Button variant="outline" size="sm">
-                  View All
+                <Button asChild variant="outline" size="sm">
+                  <Link href="/projects">View All</Link>
                 </Button>
               </div>
             </CardHeader>
@@ -618,9 +635,20 @@ export default function DashboardPage() {
                           <span className="text-xs text-muted-foreground">{task.time}</span>
                         </div>
                       </div>
-                      {task.completed && (
-                        <CheckCircle2 className="h-4 w-4 text-green-500 mt-1 flex-shrink-0" />
-                      )}
+                      <div className="flex items-center gap-2 mt-1">
+                        {task.completed && (
+                          <CheckCircle2 className="h-4 w-4 text-green-500 mt-1 flex-shrink-0" />
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          onClick={() => deleteTask(task.id)}
+                          title="Delete task"
+                        >
+                          Delete
+                        </Button>
+                      </div>
                     </div>
                   ))
                 ) : tasksError ? (

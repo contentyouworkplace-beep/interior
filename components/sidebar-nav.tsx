@@ -1,5 +1,5 @@
 "use client"
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
   LayoutDashboard,
   Users,
@@ -11,7 +11,6 @@ import {
   X,
   Menu,
   Crown,
-  Building2,
   LogOut,
   BarChart3,
   Truck,
@@ -22,6 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import { useSidebar } from "@/contexts/sidebar-context";
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/auth-context"
+import Image from 'next/image'
 
 interface NavigationItem {
   name: string
@@ -51,90 +51,22 @@ export function SidebarNav({ currentPath = "/dashboard" }: SidebarNavProps) {
   }
 
   const navigation: NavigationItem[] = [
-    // Core Business
-    {
-      name: "Dashboard",
-      href: "/dashboard",
-      icon: LayoutDashboard,
-      current: currentPath === "/dashboard",
-    },
-    {
-      name: "Clients",
-      href: "/clients",
-      icon: Users,
-      current: currentPath === "/clients" || currentPath?.startsWith("/clients/"),
-      badge: "Core",
-    },
-    {
-      name: "Projects",
-      href: "/projects",
-      icon: FolderOpen,
-      current: currentPath === "/projects",
-      badge: "Core",
-    },
-    // Financial Management
-    {
-      name: "Expenses",
-      href: "/expenses",
-      icon: Receipt,
-      current: currentPath === "/expenses",
-      badge: "Finance",
-    },
-    {
-      name: "Quotations",
-      href: "/quotations",
-      icon: FileText,
-      current: currentPath === "/quotations" || currentPath?.startsWith("/quotations/"),
-      badge: "Finance",
-    },
-    {
-      name: "Invoices",
-      href: "/invoices",
-      icon: Receipt,
-      current: currentPath === "/invoices" || currentPath?.startsWith("/invoices/"),
-      badge: "Finance",
-    },
-    // Team & Collaboration
-    {
-      name: "Team",
-      href: "/team",
-      icon: UserCheck,
-      current: currentPath === "/team",
-      badge: "Team",
-    },
-    {
-      name: "Vendors",
-      href: "/vendors",
-      icon: Truck,
-      current: currentPath === "/vendors",
-      badge: "Business"
-    },
-    {
-      name: "Reports",
-      href: "/reports",
-      icon: BarChart3,
-      current: currentPath === "/reports"
-    },
-    {
-      name: "Portfolio",
-      href: "/portfolio",
-      icon: Images,
-      current: currentPath === "/portfolio"
-    },
-    {
-      name: "AI Local SEO",
-      href: "/ai-local-seo",
-      icon: Users,
-      current: currentPath === "/ai-local-seo",
-      badge: "Free"
-    },
-    {
-      name: "3D View",
-      href: "/3d-view",
-      icon: LayoutDashboard,
-      current: currentPath === "/3d-view",
-      comingSoon: true
-    },
+    // Primary
+    { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard, current: currentPath === "/dashboard" },
+    { name: "Clients", href: "/clients", icon: Users, current: currentPath === "/clients" || currentPath?.startsWith("/clients/"), badge: "Core" },
+    { name: "Projects", href: "/projects", icon: FolderOpen, current: currentPath === "/projects", badge: "Core" },
+    // Finance in requested order
+    { name: "Quotations", href: "/quotations", icon: FileText, current: currentPath === "/quotations" || currentPath?.startsWith("/quotations/"), badge: "Finance" },
+    { name: "Invoices", href: "/invoices", icon: Receipt, current: currentPath === "/invoices" || currentPath?.startsWith("/invoices/"), badge: "Finance" },
+    { name: "Expenses", href: "/expenses", icon: Receipt, current: currentPath === "/expenses", badge: "Finance" },
+    { name: "Reports", href: "/reports", icon: BarChart3, current: currentPath === "/reports" },
+    // Team & Vendors
+    { name: "Team", href: "/team", icon: UserCheck, current: currentPath === "/team", badge: "Team" },
+    { name: "Vendors", href: "/vendors", icon: Truck, current: currentPath === "/vendors", badge: "Business" },
+    // Others
+    { name: "Portfolio", href: "/portfolio", icon: Images, current: currentPath === "/portfolio" },
+    { name: "AI Local SEO", href: "/ai-local-seo", icon: Users, current: currentPath === "/ai-local-seo", badge: "Free" },
+    { name: "3D View", href: "/3d-view", icon: LayoutDashboard, current: currentPath === "/3d-view", comingSoon: true },
   ]
 
   const bottomNavigation: NavigationItem[] = [
@@ -183,18 +115,21 @@ export function SidebarNav({ currentPath = "/dashboard" }: SidebarNavProps) {
           {/* Header */}
           <div className="p-4 border-b border-sidebar-border">
             <div className="flex items-center justify-between">
-              <div className={cn("flex items-center space-x-3", isCollapsed && "justify-center")}>
-                <Building2 className="h-8 w-8 text-primary flex-shrink-0" />
-                {!isCollapsed && (
-                  <div>
-                    <h1 className="text-lg font-bold text-sidebar-foreground">GoPLNR.com</h1>
-                    <div className="flex items-center space-x-1">
-                      <Crown className="h-3 w-3 text-primary" />
-                      <span className="text-xs text-primary font-medium">Pro Plan</span>
+                  <div className={cn("flex items-center", isCollapsed ? "justify-center" : "justify-start")}> 
+                    <div className={cn("flex flex-col items-center", !isCollapsed && "items-start")}> 
+                      {isCollapsed ? (
+                        <Image src="/icon.png" alt="GoPLNR.com" width={28} height={28} className="h-7 w-7 flex-shrink-0" />
+                      ) : (
+                        <Image src="/logo.png" alt="GoPLNR.com" width={144} height={38} className="h-9 w-auto flex-shrink-0" />
+                      )}
+                      {!isCollapsed && (
+                        <div className="flex items-center gap-1 mt-1 self-start"> 
+                          <Crown className="h-3 w-3 text-primary" />
+                          <span className="text-xs text-primary font-medium">Trial Plan</span>
+                        </div>
+                      )}
                     </div>
                   </div>
-                )}
-              </div>
               <Button
                 variant="ghost"
                 size="sm"

@@ -6,6 +6,7 @@
 
 import { createClient } from '@/lib/supabase/client'
 import { generateThumbnail } from '@/lib/thumbnail-generator'
+import { compressImage, isCompressibleImage } from '@/lib/image-compressor'
 import type {
   PortfolioProject,
   PortfolioMedia,
@@ -285,28 +286,80 @@ export class PortfolioService {
     try {
       const { project_id, file, title, description, alt_text, is_featured } = request
 
+      // Compress image if it's compressible
+      let fileToUpload = file
+      let originalPath: string | undefined
+      
+      if (isCompressibleImage(file)) {
+        try {
+          console.log(`🖼️ Compressing image: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)}MB)`)
+          
+          const compressionResult = await compressImage(file, {
+            maxWidth: 1920,
+            maxHeight: 1920,
+            quality: 0.85,
+            outputFormat: 'image/jpeg'
+          })
+          
+          console.log(`✅ Compressed: ${(compressionResult.compressedSize / 1024 / 1024).toFixed(2)}MB (${compressionResult.compressionRatio.toFixed(1)}% reduction)`)
+          
+          // Upload original if significant compression achieved
+          if (compressionResult.compressionRatio > 20) {
+            const originalFileExt = file.name.split('.').pop()
+            const originalFileName = `original-${Date.now()}-${Math.random().toString(36).substring(7)}.${originalFileExt}`
+            originalPath = `projects/${project_id}/originals/${originalFileName}`
+            
+            // Upload original in background (don't await)
+            this.supabase.storage
+              .from(this.portfolioBucket)
+              .upload(originalPath, file, { 
+                contentType: file.type,
+                upsert: false,
+                cacheControl: '31536000' // Cache originals for 1 year
+              })
+              .catch(err => console.warn('Failed to upload original:', err))
+          }
+          
+          fileToUpload = compressionResult.compressedFile
+        } catch (compressionError) {
+          console.warn('⚠️ Compression failed, using original:', compressionError)
+          // Continue with original file
+        }
+      }
+
       // Generate unique filename
-      const fileExt = file.name.split('.').pop()
+      const fileExt = fileToUpload.name.split('.').pop()
       const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`
       const storagePath = `projects/${project_id}/${fileName}`
+
+      console.log(`⬆️ Uploading to: ${storagePath}`)
 
       // Upload main file to Supabase Storage
       const { error: uploadError } = await this.supabase.storage
         .from(this.portfolioBucket)
-        .upload(storagePath, file, { contentType: file.type || undefined, upsert: false, cacheControl: '3600' })
+        .upload(storagePath, fileToUpload, { 
+          contentType: fileToUpload.type || undefined, 
+          upsert: false, 
+          cacheControl: '3600' 
+        })
 
       if (uploadError) {
+        console.error('❌ Upload error:', uploadError)
         return {
           success: false,
           error: `Upload failed: ${uploadError.message}`
         }
       }
 
+      console.log('✅ File uploaded successfully')
+
       // Generate and upload thumbnail for images and videos
       let thumbnailPath: string | undefined
       if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
         try {
+          console.log('📸 Generating thumbnail...')
           const thumbnailResult = await generateThumbnail(file)
+          
           if (thumbnailResult.url && thumbnailResult.type === 'generated') {
             // Convert data URL to blob
             const response = await fetch(thumbnailResult.url)
@@ -315,6 +368,8 @@ export class PortfolioService {
             // Generate thumbnail filename
             const thumbnailFileName = `thumb_${fileName.replace(/\.[^/.]+$/, '')}.jpg`
             const thumbStoragePath = `projects/${project_id}/thumbnails/${thumbnailFileName}`
+            
+            console.log(`⬆️ Uploading thumbnail to: ${thumbStoragePath}`)
             
             // Upload thumbnail
             const { error: thumbUploadError } = await this.supabase.storage
@@ -327,10 +382,13 @@ export class PortfolioService {
             
             if (!thumbUploadError) {
               thumbnailPath = thumbStoragePath
+              console.log('✅ Thumbnail uploaded successfully')
+            } else {
+              console.warn('⚠️ Thumbnail upload failed:', thumbUploadError)
             }
           }
         } catch (thumbError) {
-          console.warn('Failed to generate thumbnail:', thumbError)
+          console.warn('⚠️ Failed to generate thumbnail:', thumbError)
           // Continue without thumbnail - not critical
         }
       }
@@ -340,17 +398,35 @@ export class PortfolioService {
   const isImage = file.type.startsWith('image/') || file.type === 'application/pdf'
   const fileType: 'image' | 'video' = isVideo ? 'video' : 'image'
 
+      // Generate signed URLs for private bucket
+      const { data: mediaUrl } = await this.supabase.storage
+        .from(this.portfolioBucket)
+        .createSignedUrl(storagePath, 3600) // 1 hour expiry
+      
+      let thumbnailUrl: string | undefined
+      if (thumbnailPath) {
+        const { data: thumbUrl } = await this.supabase.storage
+          .from(this.portfolioBucket)
+          .createSignedUrl(thumbnailPath, 3600)
+        thumbnailUrl = thumbUrl?.signedUrl
+      }
+
+      console.log('🔗 Generated media URL:', mediaUrl?.signedUrl ? 'Yes' : 'No')
+      console.log('🔗 Generated thumbnail URL:', thumbnailUrl ? 'Yes' : 'No')
+
       // Create media metadata record
       const mediaData = {
         project_id,
         filename: fileName,
         original_filename: file.name,
         file_type: fileType,
-        mime_type: file.type,
-        file_size: file.size,
+        mime_type: fileToUpload.type || file.type,
+        file_size: fileToUpload.size,
         storage_bucket: this.portfolioBucket,
         storage_path: storagePath,
         thumbnail_path: thumbnailPath,
+        media_url: mediaUrl?.signedUrl,
+        thumbnail_url: thumbnailUrl,
         title: title || file.name,
         description,
         alt_text,
@@ -367,10 +443,18 @@ export class PortfolioService {
         .single()
 
       if (dbError) {
-        // Clean up uploaded file if database insert fails
+        console.error('❌ Database insert error:', dbError)
+        
+        // Clean up uploaded files if database insert fails
         await this.supabase.storage
           .from(this.portfolioBucket)
           .remove([storagePath])
+        
+        if (thumbnailPath) {
+          await this.supabase.storage
+            .from(this.portfolioBucket)
+            .remove([thumbnailPath])
+        }
 
         return {
           success: false,
@@ -378,11 +462,21 @@ export class PortfolioService {
         }
       }
 
+      console.log('✅ Database record created:', (media as any).id)
+
+      console.log('✅ Database record created:', (media as any).id)
+
       // If it's a video, create processing job
       let processingJobId: string | undefined
       if (isVideo) {
         processingJobId = await this.createVideoProcessingJob((media as any).id, storagePath)
       }
+
+      console.log('🎉 Upload complete!')
+      console.log('   - File:', fileName)
+      console.log('   - Size:', (fileToUpload.size / 1024 / 1024).toFixed(2), 'MB')
+      console.log('   - Thumbnail:', thumbnailPath ? 'Generated' : 'N/A')
+      console.log('   - Type:', fileType)
 
       return {
         success: true,
@@ -390,6 +484,7 @@ export class PortfolioService {
         processing_job_id: processingJobId
       }
     } catch (error) {
+      console.error('❌ Unexpected error in uploadMedia:', error)
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error'
@@ -441,8 +536,25 @@ export class PortfolioService {
 
   /**
    * Update media metadata
+   * If setting is_featured to true, unfeature all other media in the same project
    */
   static async updateMedia(id: string, updates: Partial<PortfolioMedia>): Promise<PortfolioMedia> {
+    // If setting a file as featured, first unfeature all others in the same project
+    if (updates.is_featured === true) {
+      // Get the project_id for this media
+      const { data: currentMedia } = await this.from('portfolio_media')
+        .select('project_id')
+        .eq('id', id)
+        .single()
+      
+      if (currentMedia) {
+        // Unfeature all media in this project
+        await this.from('portfolio_media')
+          .update({ is_featured: false })
+          .eq('project_id', currentMedia.project_id)
+      }
+    }
+
     const { data: media, error } = await this.from('portfolio_media')
       .update(updates)
       .eq('id', id)

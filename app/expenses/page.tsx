@@ -20,6 +20,7 @@ import { DollarSign, Calendar, TrendingUp, Filter, Plus, Search, Download, MoreH
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
+import type { DateRange } from 'react-day-picker'
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { formatCurrencyForPDF, formatCurrencyForPDFSafe } from "@/lib/pdf-currency-utils";
@@ -40,7 +41,8 @@ export default function ExpensesPage() {
 
   const [filter, setFilter] = useState("All Categories");
   const [searchTerm, setSearchTerm] = useState('');
-  const [dateFilter, setDateFilter] = useState<{ from: Date | undefined; to: Date | undefined }>({ from: undefined, to: undefined });
+  // Unified date range filter like Reports page
+  const [dateRange, setDateRange] = useState<DateRange | undefined>()
 
   // Fetch expenses from backend
   useEffect(() => {
@@ -173,15 +175,13 @@ export default function ExpensesPage() {
     // Date filtering logic
     const expenseDate = new Date(expense.expense_date + 'T00:00:00');
     let matchesDateRange = true;
-    
-    if (dateFilter.from) {
-      const fromDate = new Date(dateFilter.from);
+    if (dateRange?.from) {
+      const fromDate = new Date(dateRange.from);
       fromDate.setHours(0, 0, 0, 0);
       matchesDateRange = matchesDateRange && expenseDate >= fromDate;
     }
-    
-    if (dateFilter.to) {
-      const toDate = new Date(dateFilter.to);
+    if (dateRange?.to) {
+      const toDate = new Date(dateRange.to);
       toDate.setHours(23, 59, 59, 999);
       matchesDateRange = matchesDateRange && expenseDate <= toDate;
     }
@@ -281,9 +281,9 @@ export default function ExpensesPage() {
         doc.text(`Category: ${filter}`, 14, yPos);
         yPos += 7;
       }
-      if (dateFilter.from || dateFilter.to) {
-        const fromDate = dateFilter.from ? dateFilter.from.toLocaleDateString('en-IN') : 'Beginning';
-        const toDate = dateFilter.to ? dateFilter.to.toLocaleDateString('en-IN') : 'Today';
+      if (dateRange?.from || dateRange?.to) {
+        const fromDate = dateRange?.from ? dateRange.from.toLocaleDateString('en-IN') : 'Beginning';
+        const toDate = dateRange?.to ? dateRange.to.toLocaleDateString('en-IN') : 'Today';
         doc.text(`Period: ${fromDate} to ${toDate}`, 14, yPos);
         yPos += 7;
       }
@@ -516,65 +516,41 @@ export default function ExpensesPage() {
                     </SelectContent>
                   </Select>
                   
-                  {/* Date Filters */}
-                  <div className="flex items-center gap-2">
-                    <Label className="text-sm font-medium">From:</Label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          className={cn(
-                            "w-[140px] justify-start text-left font-normal",
-                            !dateFilter.from && "text-muted-foreground"
-                          )}
-                        >
-                          <CalendarIcon className="mr-2 h-4 w-4" />
-                          {dateFilter.from ? format(dateFilter.from, "dd/MM/yyyy") : "dd/mm/yyyy"}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <CalendarComponent
-                          mode="single"
-                          selected={dateFilter.from}
-                          onSelect={(date) => setDateFilter(prev => ({ ...prev, from: date }))}
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    </Popover>
-                  </div>
+                  {/* Date Range (like Reports) */}
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="w-[260px] justify-start text-left font-normal">
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {dateRange?.from ? (
+                          dateRange.to ? (
+                            <>
+                              {format(dateRange.from, "LLL dd, y")} - {format(dateRange.to, "LLL dd, y")}
+                            </>
+                          ) : (
+                            format(dateRange.from, "LLL dd, y")
+                          )
+                        ) : (
+                          <span>Pick a date range</span>
+                        )}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <CalendarComponent
+                        mode="range"
+                        defaultMonth={dateRange?.from}
+                        selected={dateRange}
+                        onSelect={setDateRange}
+                        numberOfMonths={2}
+                      />
+                    </PopoverContent>
+                  </Popover>
                   
-                  <div className="flex items-center gap-2">
-                    <Label className="text-sm font-medium">To:</Label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          className={cn(
-                            "w-[140px] justify-start text-left font-normal",
-                            !dateFilter.to && "text-muted-foreground"
-                          )}
-                        >
-                          <CalendarIcon className="mr-2 h-4 w-4" />
-                          {dateFilter.to ? format(dateFilter.to, "dd/MM/yyyy") : "dd/mm/yyyy"}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <CalendarComponent
-                          mode="single"
-                          selected={dateFilter.to}
-                          onSelect={(date) => setDateFilter(prev => ({ ...prev, to: date }))}
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-                  
-                  {(dateFilter.from || dateFilter.to || searchTerm || projectFilter !== "All Projects" || filter !== "All Categories") && (
+                  {(dateRange?.from || dateRange?.to || searchTerm || projectFilter !== "All Projects" || filter !== "All Categories") && (
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => {
-                        setDateFilter({ from: undefined, to: undefined });
+                        setDateRange(undefined);
                         setSearchTerm('');
                         setProjectFilter("All Projects");
                         setFilter("All Categories");

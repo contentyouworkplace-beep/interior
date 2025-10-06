@@ -39,7 +39,8 @@ export function SimpleAddTaskDialog({
         title,
         time,
         date: selectedDate?.toISOString().split('T')[0] || new Date().toISOString().split('T')[0],
-        type: 'task',
+        // Use a valid type accepted by the DB constraint
+        type: 'personal',
       }
 
       // Replace with your actual API call

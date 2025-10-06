@@ -55,6 +55,24 @@ export async function signUpWithEmail(
 
     if (error) throw error
 
+    // If user was created successfully, trigger organization setup
+    if (data.user && !data.user.email_confirmed_at) {
+      // User needs email confirmation first
+      console.log('User created, email confirmation required')
+    } else if (data.user) {
+      // User is confirmed, trigger organization setup
+      try {
+        await fetch('/api/dev/setup-auto-organization', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        })
+        console.log('Auto organization setup triggered for new user')
+      } catch (setupError) {
+        console.log('Auto organization setup failed:', setupError)
+        // Don't fail the signup for this
+      }
+    }
+
     return {
       user: data.user,
       error: null,

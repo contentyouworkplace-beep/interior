@@ -213,8 +213,6 @@ export default function CompanyPageNew() {
   const [qrCodePreview, setQrCodePreview] = useState<string>('')
   const [progress, setProgress] = useState(0)
   const [activeTab, setActiveTab] = useState('company')
-  const [showDebug, setShowDebug] = useState(false)
-  const [debugOrgId, setDebugOrgId] = useState<string>('')
   // Preview modal state
   const [showPreview, setShowPreview] = useState(false)
   const [previewType, setPreviewType] = useState<'quotation' | 'invoice'>('quotation')
@@ -294,7 +292,6 @@ export default function CompanyPageNew() {
   useEffect(() => {
     // orgLoading comes from useOrganization; if it's falsy we assume it's resolved
     if (typeof (orgId) !== 'undefined' && orgId && !orgLoading) {
-      setDebugOrgId(orgId)
       loadCompanyData()
     }
   // include orgLoading so we react to changes in the loading state
@@ -593,6 +590,7 @@ export default function CompanyPageNew() {
           gstin: current.gstin,
           pan: current.pan,
           cin: current.cin,
+          terms_and_conditions: current.terms_and_conditions,
         })
       const normalizedBanking = normalize({
           bank_name: current.bank_name,
@@ -671,90 +669,8 @@ export default function CompanyPageNew() {
         </div>
         <div className="flex items-center gap-2">
           {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-          <Badge variant={orgId ? "default" : "secondary"}>
-            {orgId ? "Connected" : "Not Connected"}
-          </Badge>
-          {orgId && (
-            <span className="text-xs text-gray-500 hidden sm:inline">org: {orgId.slice(0,8)}…</span>
-          )}
-          {process.env.NODE_ENV !== 'production' && (
-            <Button size="sm" variant="outline" onClick={() => setShowDebug((v) => !v)}>
-              {showDebug ? 'Hide Debug' : 'Show Debug'}
-            </Button>
-          )}
         </div>
       </div>
-
-      {process.env.NODE_ENV !== 'production' && showDebug && (
-        <Card>
-          <CardContent className="pt-6 text-xs text-gray-700 space-y-2">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <div><span className="font-medium">Org ID:</span> <code>{orgId || '—'}</code></div>
-              <div><span className="font-medium">Loading:</span> {String(loading)}</div>
-              <div><span className="font-medium">Error:</span> {error || '—'}</div>
-            </div>
-            <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
-              <label className="font-medium">Org override:</label>
-              <input
-                className="border rounded px-2 py-1 w-full sm:w-96"
-                value={debugOrgId}
-                onChange={(e) => setDebugOrgId(e.target.value)}
-                placeholder="00000000-0000-0000-0000-000000000001"
-              />
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={async () => {
-                  if (!debugOrgId) return
-                  const result = await getCompanySettings(debugOrgId)
-                  if (result.data) {
-                    const { profile, banking, branding } = result.data
-                    const values = {
-                      company_name: profile?.company_name || '',
-                      company_tagline: profile?.company_tagline || '',
-                      email: profile?.email || '',
-                      phone: profile?.phone || '',
-                      website: profile?.website || '',
-                      address: profile?.address || '',
-                      city: profile?.city || '',
-                      state: profile?.state || '',
-                      pin_code: profile?.pin_code || '',
-                      gstin: profile?.gstin || '',
-                      pan: profile?.pan || '',
-                      cin: profile?.cin || '',
-                      bank_name: banking?.bank_name || '',
-                      account_number: banking?.account_number || '',
-                      ifsc_code: banking?.ifsc_code || '',
-                      primary_color: branding?.primary_color || '#3B82F6',
-                      secondary_color: branding?.secondary_color || '#1E40AF',
-                      quotation_template: (branding?.quotation_template as any) || 'modern',
-                      invoice_template: (branding?.invoice_template as any) || 'modern',
-                    }
-                    form.reset(values)
-                    Object.entries(values).forEach(([k, v]) => {
-                      try { form.setValue(k as any, v as any, { shouldValidate: false, shouldDirty: false }) } catch (e) { /* ignore */ }
-                    })
-                    await form.trigger()
-                    setLogoPreview(branding?.logo_url || '')
-                    setSignaturePreview(branding?.signature_url || '')
-                    toast({ title: 'Loaded via override', description: `Fetched company settings for ${debugOrgId.slice(0,8)}…` })
-                  } else {
-                    toast({ title: 'No data for override', description: 'No company settings found for this org id' })
-                  }
-                }}
-              >
-                Load
-              </Button>
-            </div>
-            <div className="mt-2">
-              <span className="font-medium">Last fetched bundle:</span>
-              <pre className="mt-1 bg-gray-50 rounded p-2 overflow-auto max-h-64">
-{JSON.stringify(lastBundle, null, 2)}
-              </pre>
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {/* Progress indicator when submitting */}
       {isSubmitting && (
@@ -990,7 +906,8 @@ export default function CompanyPageNew() {
                     id="address"
                     placeholder="Enter your complete business address"
                     rows={3}
-                    {...form.register("address")}
+                    value={form.watch("address") || ''}
+                    onChange={(e) => form.setValue("address", e.target.value, { shouldValidate: true, shouldDirty: true })}
                   />
                   {form.formState.errors.address && (
                     <p className="text-sm text-red-500">{form.formState.errors.address.message}</p>

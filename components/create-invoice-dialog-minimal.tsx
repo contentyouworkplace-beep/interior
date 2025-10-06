@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Plus, Trash2, Calculator, Loader2, UserPlus } from "lucide-react"
+import { Plus, Trash2, Calculator, Loader2 } from "lucide-react"
 import { formatINR } from "@/lib/utils"
 import { useSettings } from "@/contexts/settings-context"
 import { BusinessSettingsService } from "@/lib/services/business-settings-service"
@@ -55,11 +55,11 @@ export function CreateInvoiceDialogMinimal({ children, onSuccess, open: controll
   const [clients, setClients] = useState<Client[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [showNewClientForm, setShowNewClientForm] = useState(false)
 
   const [formData, setFormData] = useState({
     clientId: "",
     invoiceNumber: "",
+    subject: "",
     issueDate: new Date().toISOString().split("T")[0],
     dueDate: "",
     currency: "INR",
@@ -68,19 +68,6 @@ export function CreateInvoiceDialogMinimal({ children, onSuccess, open: controll
     subtotal: 0,
     total: 0,
     notes: ""
-  })
-
-  const [newClient, setNewClient] = useState({
-    first_name: "",
-    last_name: "",
-    company: "",
-    email: "",
-    phone: "",
-    address: "",
-    city: "",
-    state: "",
-    zip_code: "",
-    gstin: ""
   })
 
   const [lineItems, setLineItems] = useState<LineItem[]>([
@@ -154,40 +141,11 @@ export function CreateInvoiceDialogMinimal({ children, onSuccess, open: controll
     }))
   }
 
-  const handleCreateClient = async () => {
-    if (!newClient.first_name.trim() || !newClient.email.trim()) {
-      toast.error("First name and email are required")
-      return
-    }
-
-    try {
-      const response = await fetch('/api/clients', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newClient)
-      })
-
-      const result = await response.json()
-      
-      if (result.success && result.client) {
-        setClients(prev => [...prev, result.client])
-        setFormData(prev => ({ ...prev, clientId: result.client.id }))
-        setNewClient({ first_name: "", last_name: "", company: "", email: "", phone: "", address: "", city: "", state: "", zip_code: "", gstin: "" })
-        setShowNewClientForm(false)
-        toast.success("Client created successfully")
-      } else {
-        throw new Error(result.error || 'Failed to create client')
-      }
-    } catch (error) {
-      console.error(error)
-      toast.error('Failed to create client')
-    }
-  }
-
   const resetForm = () => {
     setFormData({
       clientId: "",
       invoiceNumber: "",
+      subject: "",
       issueDate: new Date().toISOString().split("T")[0],
       dueDate: "",
       currency: "INR",
@@ -198,8 +156,6 @@ export function CreateInvoiceDialogMinimal({ children, onSuccess, open: controll
       notes: ""
     })
     setLineItems([{ id: "1", description: "", quantity: 1, unit_price: 0, amount: 0 }])
-    setShowNewClientForm(false)
-    setNewClient({ first_name: "", last_name: "", company: "", email: "", phone: "", address: "", city: "", state: "", zip_code: "", gstin: "" })
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -210,10 +166,20 @@ export function CreateInvoiceDialogMinimal({ children, onSuccess, open: controll
       return 
     }
     
+    console.log('🚀 CreateInvoice - All line items:', lineItems)
     const validItems = lineItems.filter(i => i.description.trim())
+    console.log('✅ CreateInvoice - Valid items (with description):', validItems)
+    
     if (!validItems.length) { 
-      toast.error("Add at least one line item") 
+      toast.error("Add at least one line item with description") 
       return 
+    }
+    
+    // Check for items with no amount
+    const itemsWithoutAmount = validItems.filter(i => !i.amount || i.amount === 0)
+    if (itemsWithoutAmount.length > 0) {
+      toast.error("All line items must have a valid amount (unit price × quantity)")
+      return
     }
 
     setSubmitting(true)
@@ -221,6 +187,7 @@ export function CreateInvoiceDialogMinimal({ children, onSuccess, open: controll
       const payload: Partial<Invoice> = {
         client_id: formData.clientId,
         invoice_number: formData.invoiceNumber,
+        title: formData.subject || `Invoice ${formData.invoiceNumber}`,
         status: 'draft',
         issue_date: formData.issueDate,
         due_date: formData.dueDate,
@@ -236,28 +203,44 @@ export function CreateInvoiceDialogMinimal({ children, onSuccess, open: controll
       
       if (res.success && res.data) {
         // Add items to the invoice
-        console.log('CreateInvoiceDialogMinimal - Adding items to invoice:', res.data.id)
-        console.log('CreateInvoiceDialogMinimal - Valid items:', validItems)
-        console.log('CreateInvoiceDialogMinimal - Form tax_rate:', formData.tax_rate)
+        console.log('✅ CreateInvoice - Invoice created:', res.data.id)
+        console.log('📦 CreateInvoice - Adding items, count:', validItems.length)
+        console.log('📦 CreateInvoice - Valid items:', validItems)
+        
+        let itemsAdded = 0
+        let itemErrors = []
         
         for (const [idx, item] of validItems.entries()) {
+          // Only send columns that actually exist in invoice_items table
           const itemData = {
             description: item.description,
             quantity: item.quantity,
             unit_price: item.unit_price,
             amount: item.amount,
-            tax_rate: formData.tax_rate || 0,
-            tax_amount: (item.amount * (formData.tax_rate || 0)) / 100,
             item_order: idx + 1
           }
           
-          console.log('CreateInvoiceDialogMinimal - Adding item:', itemData)
+          console.log(`➕ CreateInvoice - Adding item ${idx + 1}/${validItems.length}:`, itemData)
           
           const itemResult = await invoiceService.addInvoiceItem(res.data.id, itemData)
-          console.log('CreateInvoiceDialogMinimal - Item add result:', itemResult)
+          
+          if (itemResult.success) {
+            console.log(`✅ CreateInvoice - Item ${idx + 1} added successfully`)
+            itemsAdded++
+          } else {
+            console.error(`❌ CreateInvoice - Item ${idx + 1} failed:`, itemResult.error)
+            itemErrors.push(`Item ${idx + 1}: ${itemResult.error}`)
+          }
         }
         
-        toast.success("Invoice created successfully")
+        console.log(`📊 CreateInvoice - Summary: ${itemsAdded}/${validItems.length} items added`)
+        
+        if (itemErrors.length > 0) {
+          toast.error(`Invoice created but some items failed to add: ${itemErrors.join(', ')}`)
+        } else {
+          toast.success(`Invoice created successfully with ${itemsAdded} items`)
+        }
+        
         onSuccess?.()
         resetForm()
         setOpen(false)
@@ -301,7 +284,18 @@ export function CreateInvoiceDialogMinimal({ children, onSuccess, open: controll
                       placeholder="INV-001" 
                     />
                   </div>
+                </div>
 
+                <div className="space-y-2">
+                  <Label>Subject / Title *</Label>
+                  <Input 
+                    value={formData.subject} 
+                    onChange={e => setFormData(p => ({ ...p, subject: e.target.value }))}
+                    placeholder="e.g., Interior Design Services for Living Room" 
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Issue Date</Label>
                     <Input 
@@ -328,137 +322,21 @@ export function CreateInvoiceDialogMinimal({ children, onSuccess, open: controll
                 <CardTitle className="text-base">Client Selection</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {!showNewClientForm ? (
-                  <div className="space-y-4">
-                    <div className="flex gap-2">
-                      <div className="flex-1">
-                        <Label>Select Client *</Label>
-                        <Select value={formData.clientId} onValueChange={v => setFormData(p => ({ ...p, clientId: v }))}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Choose a client" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {clients.map(c => (
-                              <SelectItem key={c.id} value={c.id}>
-                                {c.first_name} {c.last_name} {c.company && `(${c.company})`}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <Button 
-                        type="button" 
-                        variant="outline" 
-                        onClick={() => setShowNewClientForm(true)}
-                        className="mt-6"
-                      >
-                        <UserPlus className="h-4 w-4 mr-2" />
-                        New Client
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-4 border rounded-lg p-4">
-                    <div className="flex justify-between items-center">
-                      <h4 className="font-medium">Create New Client</h4>
-                      <Button 
-                        type="button" 
-                        variant="ghost" 
-                        size="sm" 
-                        onClick={() => setShowNewClientForm(false)}
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="col-span-1 space-y-2">
-                        <Label>First Name *</Label>
-                        <Input 
-                          value={newClient.first_name}
-                          onChange={e => setNewClient(p => ({ ...p, first_name: e.target.value }))}
-                          placeholder="John"
-                        />
-                      </div>
-                      <div className="col-span-1 space-y-2">
-                        <Label>Last Name</Label>
-                        <Input 
-                          value={newClient.last_name}
-                          onChange={e => setNewClient(p => ({ ...p, last_name: e.target.value }))}
-                          placeholder="Doe"
-                        />
-                      </div>
-                      <div className="col-span-2 space-y-2">
-                        <Label>Company</Label>
-                        <Input 
-                          value={newClient.company}
-                          onChange={e => setNewClient(p => ({ ...p, company: e.target.value }))}
-                          placeholder="ABC Corp"
-                        />
-                      </div>
-                      <div className="col-span-2 space-y-2">
-                        <Label>Email *</Label>
-                        <Input 
-                          type="email"
-                          value={newClient.email}
-                          onChange={e => setNewClient(p => ({ ...p, email: e.target.value }))}
-                          placeholder="john@example.com"
-                        />
-                      </div>
-                      <div className="col-span-2 space-y-2">
-                        <Label>Phone</Label>
-                        <Input 
-                          value={newClient.phone}
-                          onChange={e => setNewClient(p => ({ ...p, phone: e.target.value }))}
-                          placeholder="+91 9876543210"
-                        />
-                      </div>
-                      <div className="col-span-2 space-y-2">
-                        <Label>Address</Label>
-                        <Textarea 
-                          rows={2}
-                          value={newClient.address}
-                          onChange={e => setNewClient(p => ({ ...p, address: e.target.value }))}
-                          placeholder="Street address"
-                        />
-                      </div>
-                      <div className="col-span-1 space-y-2">
-                        <Label>City</Label>
-                        <Input 
-                          value={newClient.city}
-                          onChange={e => setNewClient(p => ({ ...p, city: e.target.value }))}
-                          placeholder="Mumbai"
-                        />
-                      </div>
-                      <div className="col-span-1 space-y-2">
-                        <Label>State</Label>
-                        <Input 
-                          value={newClient.state}
-                          onChange={e => setNewClient(p => ({ ...p, state: e.target.value }))}
-                          placeholder="Maharashtra"
-                        />
-                      </div>
-                      <div className="col-span-1 space-y-2">
-                        <Label>PIN Code</Label>
-                        <Input 
-                          value={newClient.zip_code}
-                          onChange={e => setNewClient(p => ({ ...p, zip_code: e.target.value }))}
-                          placeholder="400001"
-                        />
-                      </div>
-                      <div className="col-span-1 space-y-2">
-                        <Label>GSTIN</Label>
-                        <Input 
-                          value={newClient.gstin}
-                          onChange={e => setNewClient(p => ({ ...p, gstin: e.target.value }))}
-                          placeholder="27ABCDE1234F1Z5"
-                        />
-                      </div>
-                    </div>
-                    <Button type="button" onClick={handleCreateClient} className="w-full">
-                      Create Client
-                    </Button>
-                  </div>
-                )}
+                <div className="space-y-2">
+                  <Label>Select Client *</Label>
+                  <Select value={formData.clientId} onValueChange={v => setFormData(p => ({ ...p, clientId: v }))}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Choose a client" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {clients.map(c => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.first_name} {c.last_name} {c.company && `(${c.company})`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </CardContent>
             </Card>
 

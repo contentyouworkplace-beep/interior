@@ -64,6 +64,31 @@ export class UniversalFileService {
   }
 
   /**
+   * Delete a file from Supabase storage
+   */
+  static async deleteFile(config: UniversalFileConfig): Promise<{
+    success: boolean
+    error?: string
+  }> {
+    try {
+      const { error } = await this.supabase.storage
+        .from(config.bucketName)
+        .remove([config.filePath])
+
+      if (error) {
+        return { success: false, error: error.message }
+      }
+
+      return { success: true }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }
+  }
+
+  /**
    * Detect file type from filename or MIME type
    */
   static detectFileType(fileName: string, mimeType?: string): FileTypeConfig {
@@ -451,7 +476,7 @@ export class UniversalFileService {
     files: UniversalFileConfig[]
   ): Promise<{
     success: boolean
-    data?: any[]
+    data?: any
     error?: string
   }> {
     try {

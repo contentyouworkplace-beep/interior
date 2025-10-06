@@ -26,6 +26,9 @@ export const createServerComponentClient = () => {
 
 // For API routes - properly handles authentication
 export const createApiClient = (request: NextRequest) => {
+  // Add logging to debug received cookies
+  console.log('🔍 API: Received cookies:', request.cookies);
+
   return createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

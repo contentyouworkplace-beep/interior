@@ -18,7 +18,14 @@ const poppins = Poppins({
 const metadata: Metadata = {
   title: "GoPLNR.com - Interior Designer Management System",
   description: "Complete CRM solution for interior designers and architects",
+  icons: {
+    icon: "/icon.png",
+    shortcut: "/icon.png",
+    apple: "/icon.png",
+  },
 }
+
+export { metadata }
 
 export default function RootLayout({
   children,

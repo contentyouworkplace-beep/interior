@@ -3,6 +3,7 @@
 import type React from "react"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
+import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -18,6 +19,11 @@ export default function AuthPage() {
   const [password, setPassword] = useState("")
   const router = useRouter()
   const supabase = createClient()
+
+  const handleDemoLogin = () => {
+    setEmail("demo@admin.com")
+    setPassword("Demo@1234")
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -49,13 +55,23 @@ export default function AuthPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-muted/20 to-background flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        <div className="text-center space-y-6">
-          <h1 className="text-3xl font-bold text-foreground">GoPLNR.com</h1>
+        {/* Branding header with logo */}
+        <div className="text-center space-y-4 mb-6">
+          <div className="flex justify-center">
+            <Image
+              src="/logo.png"
+              alt="GoPLNR.com Logo"
+              width={200}
+              height={80}
+              className="h-16 w-auto"
+              priority
+            />
+          </div>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
             Complete CRM solution for interior designers and architects. Manage clients, projects, quotations, and team collaboration in one place.
           </p>
         </div>
-        
+
         <Card className="border-border/50 shadow-lg">
           <CardHeader className="space-y-1">
             <CardTitle className="text-2xl text-center">Welcome</CardTitle>
@@ -102,6 +118,17 @@ export default function AuthPage() {
               </div>
               <Button type="submit" className="w-full" disabled={isLoading}>
                 {isLoading ? "Signing in..." : "Sign In"}
+              </Button>
+
+              {/* Demo Credentials Button */}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleDemoLogin}
+                className="w-full mt-3 text-sm border-2 border-primary/20 hover:border-primary/40"
+              >
+                🎯 Use Demo Credentials
               </Button>
             </form>
           </CardContent>

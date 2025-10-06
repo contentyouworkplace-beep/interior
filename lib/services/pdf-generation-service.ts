@@ -116,10 +116,10 @@ export class PDFGenerationService {
       : null
 
     const companyAddress = [
-      companyData.profile?.address || companyData.company?.address,
-      companyData.profile?.city || companyData.company?.city,
-      companyData.profile?.state || companyData.company?.state,
-      companyData.profile?.pin_code || companyData.company?.pin_code
+      companyData.profile?.address,
+      companyData.profile?.city,
+      companyData.profile?.state,
+      companyData.profile?.pin_code
     ].filter(Boolean).join(', ')
 
     const clientAddress = [
@@ -410,19 +410,19 @@ export class PDFGenerationService {
           <div class="header">
             <div class="company-section">
               ${companyData.branding?.logo_url ? `<img src="${companyData.branding.logo_url}" alt="Company Logo" class="company-logo" />` : ''}
-              <div class="company-name">${companyData.profile?.company_name || companyData.company?.company_name || 'Your Company'}</div>
-              ${(companyData.profile?.company_tagline || companyData.company?.company_tagline) ? `<div class="company-tagline">${companyData.profile.company_tagline || companyData.company.company_tagline}</div>` : ''}
+              <div class="company-name">${companyData.profile?.company_name || 'Your Company'}</div>
+              ${companyData.profile?.company_tagline ? `<div class="company-tagline">${companyData.profile.company_tagline}</div>` : ''}
               <div class="company-contact">
                 ${companyAddress ? `<div>📍 ${companyAddress}</div>` : ''}
-                ${(companyData.profile?.phone || companyData.company?.phone) ? `<div>📞 ${companyData.profile.phone || companyData.company.phone}</div>` : ''}
-                ${(companyData.profile?.email || companyData.company?.email) ? `<div>✉️ ${companyData.profile.email || companyData.company.email}</div>` : ''}
-                ${(companyData.profile?.website || companyData.company?.website) ? `<div>🌐 ${companyData.profile.website || companyData.company.website}</div>` : ''}
+                ${companyData.profile?.phone ? `<div>📞 ${companyData.profile.phone}</div>` : ''}
+                ${companyData.profile?.email ? `<div>✉️ ${companyData.profile.email}</div>` : ''}
+                ${companyData.profile?.website ? `<div>🌐 ${companyData.profile.website}</div>` : ''}
               </div>
             </div>
             <div class="company-legal">
-              ${(companyData.profile?.gstin || companyData.company?.gstin) ? `<div><strong>GSTIN:</strong> ${companyData.profile.gstin || companyData.company.gstin}</div>` : ''}
-              ${(companyData.profile?.pan || companyData.company?.pan) ? `<div><strong>PAN:</strong> ${companyData.profile.pan || companyData.company.pan}</div>` : ''}
-              ${(companyData.profile?.cin || companyData.company?.cin) ? `<div><strong>CIN:</strong> ${companyData.profile.cin || companyData.company.cin}</div>` : ''}
+              ${companyData.profile?.gstin ? `<div><strong>GSTIN:</strong> ${companyData.profile.gstin}</div>` : ''}
+              ${companyData.profile?.pan ? `<div><strong>PAN:</strong> ${companyData.profile.pan}</div>` : ''}
+              ${companyData.profile?.cin ? `<div><strong>CIN:</strong> ${companyData.profile.cin}</div>` : ''}
             </div>
           </div>
           
@@ -578,7 +578,7 @@ export class PDFGenerationService {
           <div class="footer">
             <div class="thank-you">Thank you for your business!</div>
             <div>This is a computer-generated ${documentData.metadata.documentType} and does not require a physical signature.</div>
-            ${(companyData.profile?.website || companyData.company?.website) ? `<div>Visit us at: ${companyData.profile.website || companyData.company.website}</div>` : ''}
+            ${companyData.profile?.website ? `<div>Visit us at: ${companyData.profile.website}</div>` : ''}
           </div>
         </div>
       </body>
@@ -633,10 +633,10 @@ export class PDFGenerationService {
   private prepareDocumentData(documentData: QuotationInvoiceData, companyData: CompanyData) {
     // Format addresses
     const companyAddress = [
-      company.profile.address,
-      company.profile.city,
-      company.profile.state,
-      company.profile.pin_code
+      companyData.profile.address,
+      companyData.profile.city,
+      companyData.profile.state,
+      companyData.profile.pin_code
     ].filter(Boolean).join(', ')
 
     const clientAddress = [

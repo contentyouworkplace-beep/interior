@@ -19,6 +19,7 @@ import {
   Images,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import Image from 'next/image'
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { Separator } from "@/components/ui/separator"
@@ -99,90 +100,18 @@ export function SidebarNav({ currentPath = "/dashboard" }: SidebarNavProps) {
   })
 
   const navigation: NavigationItem[] = [
-    // Core Business
-    {
-      name: "Dashboard",
-      href: "/dashboard",
-      icon: LayoutDashboard,
-      current: isDashboardPage,
-    },
-    {
-      name: "Clients",
-      href: "/clients",
-      icon: Users,
-      current: isClientsPage,
-      badge: "Core",
-    },
-    {
-      name: "Projects",
-      href: "/projects",
-      icon: FolderOpen,
-      current: isProjectsPage,
-      badge: "Core",
-    },
-    // Financial Management
-    {
-      name: "Expenses",
-      href: "/expenses",
-      icon: Receipt,
-      current: isExpensesPage,
-      badge: "Finance",
-    },
-    {
-      name: "Quotations",
-      href: "/quotations",
-      icon: FileText,
-      current: isQuotationsPage,
-      badge: "Finance",
-    },
-    {
-      name: "Invoices",
-      href: "/invoices",
-      icon: Receipt,
-      current: isInvoicesPage,
-      badge: "Finance",
-    },
-    // Team & Collaboration
-    {
-      name: "Team",
-      href: "/team",
-      icon: UserCheck,
-      current: isTeamPage,
-      badge: "Team",
-    },
-    {
-      name: "Vendors",
-      href: "/vendors",
-      icon: Truck,
-      current: isVendorsPage,
-      badge: "Business",
-    },
-    {
-      name: "Reports",
-      href: "/reports",
-      icon: BarChart3,
-      current: isReportsPage,
-    },
-    {
-      name: "Portfolio",
-      href: "/portfolio",
-      icon: Images,
-      current: isPortfolioPage,
-    },
-    {
-      name: "AI Local SEO",
-      href: "/ai-local-seo",
-      icon: Users,
-      current: isAILocalSEOPage,
-      badge: "Free",
-    },
-    {
-      name: "3D View",
-      href: "/3d-view",
-      icon: LayoutDashboard,
-      current: is3DViewPage,
-      comingSoon: true,
-    },
+    { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard, current: isDashboardPage },
+    { name: "Clients", href: "/clients", icon: Users, current: isClientsPage, badge: "Core" },
+    { name: "Projects", href: "/projects", icon: FolderOpen, current: isProjectsPage, badge: "Core" },
+    { name: "Quotations", href: "/quotations", icon: FileText, current: isQuotationsPage, badge: "Finance" },
+    { name: "Invoices", href: "/invoices", icon: Receipt, current: isInvoicesPage, badge: "Finance" },
+    { name: "Expenses", href: "/expenses", icon: Receipt, current: isExpensesPage, badge: "Finance" },
+    { name: "Reports", href: "/reports", icon: BarChart3, current: isReportsPage },
+    { name: "Team", href: "/team", icon: UserCheck, current: isTeamPage, badge: "Team" },
+    { name: "Vendors", href: "/vendors", icon: Truck, current: isVendorsPage, badge: "Business" },
+    { name: "Portfolio", href: "/portfolio", icon: Images, current: isPortfolioPage },
+    { name: "AI Local SEO", href: "/ai-local-seo", icon: Users, current: isAILocalSEOPage, badge: "Free" },
+    { name: "3D View", href: "/3d-view", icon: LayoutDashboard, current: is3DViewPage, comingSoon: true },
   ]
 
   const bottomNavigation: NavigationItem[] = [
@@ -231,17 +160,20 @@ export function SidebarNav({ currentPath = "/dashboard" }: SidebarNavProps) {
           {/* Header */}
           <div className="p-4 border-b border-sidebar-border">
             <div className="flex items-center justify-between">
-              <div className={cn("flex items-center space-x-3", isCollapsed && "justify-center")}>
-                <Building2 className="h-8 w-8 text-primary flex-shrink-0" />
-                {!isCollapsed && (
-                  <div>
-                    <h1 className="text-lg font-bold text-sidebar-foreground">GoPLNR.com</h1>
-                    <div className="flex items-center space-x-1">
+              <div className={cn("flex items-center", isCollapsed ? "justify-center" : "justify-start")}> 
+                <div className={cn("flex flex-col items-center", !isCollapsed && "items-start")}>
+                  {isCollapsed ? (
+                    <Image src="/icon.png" alt="GoPLNR.com" width={28} height={28} className="h-7 w-7 flex-shrink-0" />
+                  ) : (
+                    <Image src="/logo.png" alt="GoPLNR.com" width={144} height={38} className="h-9 w-auto flex-shrink-0" />
+                  )}
+                  {!isCollapsed && (
+                    <div className="flex items-center gap-1 mt-1 self-start">
                       <Crown className="h-3 w-3 text-primary" />
-                      <span className="text-xs text-primary font-medium">Pro Plan</span>
+                      <span className="text-xs text-primary font-medium">Trial Plan</span>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
               <Button
                 variant="ghost"

@@ -44,7 +44,7 @@ async function generateImageThumbnail(file: File): Promise<ThumbnailResult> {
     const img = new Image();
     
     img.onload = () => {
-      // Set thumbnail dimensions
+      // Set thumbnail dimensions - reduced to 300x300 max
       const maxSize = 300;
       const { width, height } = img;
       const ratio = Math.min(maxSize / width, maxSize / height);
@@ -52,20 +52,30 @@ async function generateImageThumbnail(file: File): Promise<ThumbnailResult> {
       canvas.width = width * ratio;
       canvas.height = height * ratio;
       
-      // Draw and compress image
-      ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+      if (!ctx) {
+        resolve(getFallbackIcon(file.type, file.name));
+        return;
+      }
       
+      // Enable high quality image smoothing
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      
+      // Draw and compress image
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      
+      // Convert to JPEG with 70% quality for better compression
       canvas.toBlob((blob) => {
         if (blob) {
           resolve({
             url: URL.createObjectURL(blob),
             type: 'generated',
-            mimeType: file.type
+            mimeType: 'image/jpeg'
           });
         } else {
           resolve(getFallbackIcon(file.type, file.name));
         }
-      }, 'image/jpeg', 0.8);
+      }, 'image/jpeg', 0.7); // Increased compression to 70% quality
     };
     
     img.onerror = () => {
@@ -99,9 +109,19 @@ async function generateVideoThumbnail(file: File): Promise<ThumbnailResult> {
     };
     
     video.onseeked = () => {
-      // Draw video frame to canvas
-      ctx?.drawImage(video, 0, 0, canvas.width, canvas.height);
+      if (!ctx) {
+        resolve(getFallbackIcon(file.type, file.name));
+        return;
+      }
       
+      // Enable high quality image smoothing
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      
+      // Draw video frame to canvas
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      
+      // Convert to JPEG with 70% quality for better compression
       canvas.toBlob((blob) => {
         if (blob) {
           resolve({
@@ -112,7 +132,7 @@ async function generateVideoThumbnail(file: File): Promise<ThumbnailResult> {
         } else {
           resolve(getFallbackIcon(file.type, file.name));
         }
-      }, 'image/jpeg', 0.8);
+      }, 'image/jpeg', 0.7); // Increased compression to 70% quality
     };
     
     video.onerror = () => {

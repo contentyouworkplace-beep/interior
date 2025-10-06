@@ -6,7 +6,7 @@
 
 'use client'
 
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
@@ -15,16 +15,15 @@ import PDFViewer from './pdf-viewer'
 import UniversalFileService from '@/lib/services/universal-file-service'
 import { 
   Download, 
-  Share2, 
   Printer, 
   Eye, 
   FileText, 
   Image as ImageIcon,
   File,
   MoreVertical,
-  ExternalLink,
   FileSpreadsheet,
-  Loader2
+  Loader2,
+  Trash2
 } from 'lucide-react'
 
 interface FileAttachment {
@@ -45,6 +44,10 @@ interface FileAttachmentHandlerProps {
   className?: string
   compact?: boolean
   showBatchActions?: boolean
+  // Called after a file is deleted successfully from storage
+  onDeleteFile?: (file: FileAttachment) => void
+  // When true, render previews inline at the bottom instead of modal overlays
+  inlinePreview?: boolean
 }
 
 export function FileAttachmentHandler({
@@ -53,13 +56,27 @@ export function FileAttachmentHandler({
   title = 'Attachments',
   className = '',
   compact = false,
-  showBatchActions = false
+  showBatchActions = false,
+  onDeleteFile,
+  inlinePreview = false
 }: FileAttachmentHandlerProps) {
   const [selectedPDF, setSelectedPDF] = useState<FileAttachment | null>(null)
   const [isViewerOpen, setIsViewerOpen] = useState(false)
+  const [selectedImage, setSelectedImage] = useState<FileAttachment | null>(null)
+  const [isImageViewerOpen, setIsImageViewerOpen] = useState(false)
+  const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
+  const [selectedPdfUrl, setSelectedPdfUrl] = useState<string | null>(null)
+  const previewRef = useRef<HTMLDivElement | null>(null)
   const [loadingFiles, setLoadingFiles] = useState<Set<string>>(new Set())
   const [batchLoading, setBatchLoading] = useState(false)
   const { toast } = useToast()
+
+  // Auto-scroll preview into view when inline
+  useEffect(() => {
+    if (inlinePreview && (selectedImageUrl || selectedPdfUrl)) {
+      previewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }, [inlinePreview, selectedImageUrl, selectedPdfUrl])
 
   // Helper to detect file type and get config
   const getFileConfig = (file: FileAttachment) => {
@@ -127,34 +144,73 @@ export function FileAttachmentHandler({
     const fileConfig = getFileConfig(file)
     
     if (fileConfig.category === 'pdf') {
-      setSelectedPDF(file)
-      setIsViewerOpen(true)
+      if (inlinePreview) {
+        setFileLoading(file.id, true)
+        try {
+          const blobRes = await UniversalFileService.downloadFileBlob(buildFileConfig(file))
+          if (blobRes.success && blobRes.data) {
+            const blob = new Blob([blobRes.data], { type: 'application/pdf' })
+            const url = URL.createObjectURL(blob)
+            setSelectedPdfUrl(url)
+            setSelectedPDF(file)
+          } else {
+            await handleDownload(file)
+          }
+        } catch (e) {
+          console.error('PDF inline view error:', e)
+          await handleDownload(file)
+        } finally {
+          setFileLoading(file.id, false)
+        }
+      } else {
+        setSelectedPDF(file)
+        setIsViewerOpen(true)
+      }
       return
     }
 
     // For other viewable files, try to view in browser
     if (fileConfig.viewable) {
+      // Use inbuilt image viewer for images
+      if (fileConfig.category === 'image') {
+        setFileLoading(file.id, true)
+        try {
+          // Prefer secure blob fetch (works for private buckets)
+          const blobRes = await UniversalFileService.downloadFileBlob(buildFileConfig(file))
+          if (blobRes.success && blobRes.data) {
+            const mime = file.type || (file.name?.endsWith('.png') ? 'image/png' : undefined)
+            const blob = new Blob([blobRes.data], { type: mime })
+            const url = URL.createObjectURL(blob)
+            setSelectedImageUrl(url)
+          } else {
+            // Fallback to provided URL (may work if bucket/file is public)
+            setSelectedImageUrl(file.url || null)
+          }
+          setSelectedImage(file)
+          if (!inlinePreview) {
+            setIsImageViewerOpen(true)
+          }
+        } catch (e) {
+          console.error('Image view error:', e)
+          // Fallback to open new tab flow
+          const result = await UniversalFileService.openInNewTab(buildFileConfig(file))
+          if (!result.success) await handleDownload(file)
+        } finally {
+          setFileLoading(file.id, false)
+        }
+        return
+      }
+      // For text or others marked viewable, attempt new tab
       setFileLoading(file.id, true)
-      
       try {
         const result = await UniversalFileService.openInNewTab(buildFileConfig(file))
-        
         if (!result.success) {
-          // Fallback to download
           await handleDownload(file)
-          toast({
-            title: "File opened",
-            description: "File downloaded as it cannot be viewed directly in browser",
-            variant: "default",
-          })
+          toast({ title: 'File opened', description: 'Downloaded as it cannot be viewed directly', variant: 'default' })
         }
       } catch (error) {
         console.error('View error:', error)
-        toast({
-          title: "Error",
-          description: "Failed to view file",
-          variant: "destructive",
-        })
+        toast({ title: 'Error', description: 'Failed to view file', variant: 'destructive' })
       } finally {
         setFileLoading(file.id, false)
       }
@@ -187,6 +243,25 @@ export function FileAttachmentHandler({
         description: "Failed to download file",
         variant: "destructive",
       })
+    } finally {
+      setFileLoading(file.id, false)
+    }
+  }
+
+  // Handle file deletion
+  const handleDelete = async (file: FileAttachment) => {
+    setFileLoading(file.id, true)
+    try {
+      const result = await UniversalFileService.deleteFile(buildFileConfig(file))
+      if (result.success) {
+        toast({ title: 'File deleted', description: `${file.name} removed`, variant: 'default' })
+        onDeleteFile?.(file)
+      } else {
+        throw new Error(result.error)
+      }
+    } catch (error) {
+      console.error('Delete error:', error)
+      toast({ title: 'Delete failed', description: 'Failed to delete file', variant: 'destructive' })
     } finally {
       setFileLoading(file.id, false)
     }
@@ -360,10 +435,6 @@ export function FileAttachmentHandler({
                 <Download className="h-4 w-4 mr-2" />
                 Download All
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleBatchOperation('share')}>
-                <Share2 className="h-4 w-4 mr-2" />
-                Share All
-              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => handleBatchOperation('print')}>
                 <Printer className="h-4 w-4 mr-2" />
                 Print All
@@ -449,13 +520,9 @@ export function FileAttachmentHandler({
                       <Download className="h-4 w-4 mr-2" />
                       Download
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => handleOpenInNewTab(file)}>
-                      <ExternalLink className="h-4 w-4 mr-2" />
-                      Open in New Tab
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => handleShare(file)}>
-                      <Share2 className="h-4 w-4 mr-2" />
-                      Share
+                    <DropdownMenuItem onClick={() => handleDelete(file)}>
+                      <Trash2 className="h-4 w-4 mr-2 text-red-600" />
+                      Delete
                     </DropdownMenuItem>
                     {fileConfig.printable && (
                       <DropdownMenuItem onClick={() => handlePrint(file)}>
@@ -472,7 +539,7 @@ export function FileAttachmentHandler({
       </div>
 
       {/* PDF Viewer Dialog */}
-      {selectedPDF && (
+      {!inlinePreview && selectedPDF && (
         <PDFViewer
           filePath={selectedPDF.storage_path || selectedPDF.path}
           fileUrl={selectedPDF.url}
@@ -498,6 +565,85 @@ export function FileAttachmentHandler({
             })
           }}
         />
+      )}
+
+      {/* Image Viewer Dialog (modal) */}
+      {!inlinePreview && selectedImage && isImageViewerOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80">
+          <div className="relative max-w-5xl max-h-[90vh] w-full p-4">
+            <button
+              className="absolute top-4 right-4 text-white/80 hover:text-white"
+              onClick={() => {
+                setIsImageViewerOpen(false);
+                setSelectedImage(null);
+                if (selectedImageUrl) {
+                  URL.revokeObjectURL(selectedImageUrl);
+                  setSelectedImageUrl(null);
+                }
+              }}
+              aria-label="Close image viewer"
+            >
+              ×
+            </button>
+            <div className="bg-black rounded-md overflow-auto max-h-[85vh] flex items-center justify-center">
+              {selectedImageUrl ? (
+                <img src={selectedImageUrl} alt={selectedImage.name} className="max-w-full max-h-[80vh] object-contain" onLoad={() => {
+                  // no-op
+                }} />
+              ) : (
+                <div className="text-white p-8 text-center"><p>Loading image...</p></div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Inline Preview Panel */}
+      {inlinePreview && (selectedImageUrl || selectedPdfUrl) && (
+        <div ref={previewRef} className="mt-3 border rounded bg-white p-2">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm font-medium truncate max-w-[70%]">
+              {selectedImage?.name || selectedPDF?.name}
+            </div>
+            <div className="flex items-center gap-2">
+              {(selectedImage || selectedPDF) && (
+                <Button variant="outline" size="sm" onClick={() => {
+                  const f = (selectedImage || selectedPDF) as FileAttachment
+                  handleDownload(f)
+                }}>
+                  <Download className="h-4 w-4 mr-1" /> Download
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  if (selectedImageUrl) {
+                    URL.revokeObjectURL(selectedImageUrl)
+                    setSelectedImageUrl(null)
+                  }
+                  if (selectedPdfUrl) {
+                    URL.revokeObjectURL(selectedPdfUrl)
+                    setSelectedPdfUrl(null)
+                  }
+                  setSelectedImage(null)
+                  setSelectedPDF(null)
+                }}
+              >
+                Close
+              </Button>
+            </div>
+          </div>
+
+          <div className="w-full">
+            {selectedImageUrl && (
+              <img src={selectedImageUrl} alt={selectedImage?.name || 'image'} className="max-w-full max-h-[70vh] object-contain mx-auto" />
+            )}
+            {selectedPdfUrl && (
+              <iframe src={selectedPdfUrl} title={selectedPDF?.name || 'PDF'} className="w-full h-[70vh] border rounded" />
+            )}
+          </div>
+        </div>
       )}
     </div>
   )

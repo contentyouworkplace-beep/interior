@@ -1,7 +1,5 @@
-import { createClient } from '@supabase/supabase-js'
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+import { createClient as createBrowserClient } from '@/lib/supabase/client'
+import { SupabaseClient } from '@supabase/supabase-js'
 
 export interface Quotation {
   id: string
@@ -10,7 +8,7 @@ export interface Quotation {
   project_id?: string
   quotation_number: string
   title: string
-  status: 'draft' | 'sent' | 'approved' | 'rejected' | 'expired'
+  status: 'pending' | 'approved' | 'rejected'
   issue_date: string
   valid_until: string
   subtotal: number
@@ -61,6 +59,8 @@ export interface QuotationItem {
   tax_rate: number
   tax_amount: number
   item_order: number
+  discount_rate?: number
+  total?: number // DB column name (for compatibility)
 }
 
 export interface QuotationAttachment {
@@ -98,43 +98,75 @@ export interface CreateQuotationData {
 }
 
 export interface UpdateQuotationData extends Partial<CreateQuotationData> {
-  status?: 'draft' | 'sent' | 'approved' | 'rejected' | 'expired'
+  status?: 'pending' | 'approved' | 'rejected'
 }
 
 // Alias for backward compatibility
 export type CreateQuotationRequest = CreateQuotationData
 
 export class QuotationService {
-  private supabase
+  private supabase: SupabaseClient
 
   constructor() {
-    this.supabase = createClient(supabaseUrl, supabaseKey)
+    // Use the proper browser client that handles cookies and sessions
+    this.supabase = createBrowserClient() as SupabaseClient
   }
 
   async getQuotations(): Promise<{ success: boolean; data?: Quotation[]; error?: string }> {
     try {
-      const { data, error } = await (this.supabase as any)
-        .from('quotations')
-        .select(`
-          *,
-          client:clients(id, first_name, last_name, company, email),
-          project:projects(id, name)
-        `)
-        .order('created_at', { ascending: false })
+      // Get current session to attach access token (some browsers block cookie on cross-scope fetch)
+      const { data: sessionData } = await this.supabase.auth.getSession()
+      const accessToken = sessionData.session?.access_token
 
-      if (error) {
-        console.error('Error fetching quotations:', error)
-        return { success: false, error: error.message }
+      // Attempt API route first (preferred for uniform logic / RLS safety)
+      const apiResponse = await fetch('/api/quotations', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {})
+        },
+        credentials: 'include'
+      })
+
+      if (apiResponse.ok) {
+        const result = await apiResponse.json()
+        const quotations = result.quotations || result.data || result
+        const quotationsWithItems = quotations?.map((quotation: any) => ({
+          ...quotation,
+          items: quotation.items || [],
+          attachments: quotation.attachments || []
+        })) || []
+        return { success: true, data: quotationsWithItems }
       }
 
-      // Add placeholder items array until schema is applied
-      const quotationsWithItems = data?.map((quotation: any) => ({
-        ...quotation,
-        items: quotation.items || [],
-        attachments: []
-      })) || []
+      // If API route failed unauthorized, fall back to direct Supabase query for visibility
+      if (apiResponse.status === 401) {
+        console.warn('QuotationService: API returned 401, attempting direct Supabase query fallback')
+        const userRes = await this.supabase.auth.getUser()
+        if (!userRes.data.user) {
+          return { success: false, error: 'Not authenticated' }
+        }
+        const userId = userRes.data.user.id
+        const { data, error } = await (this.supabase as any)
+          .from('quotations')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false })
+          .limit(50)
+        if (error) {
+          console.error('Direct quotations query error:', error)
+          return { success: false, error: 'Failed to fetch quotations' }
+        }
+        const mapped = (data || []).map((q: any) => ({
+          ...q,
+          items: q.items || [],
+          attachments: []
+        }))
+        return { success: true, data: mapped }
+      }
 
-      return { success: true, data: quotationsWithItems }
+      const errorPayload = await apiResponse.json().catch(() => ({}))
+      return { success: false, error: errorPayload.error || `Failed (status ${apiResponse.status})` }
     } catch (error) {
       console.error('Error fetching quotations:', error)
       return { success: false, error: 'Failed to fetch quotations' }
@@ -147,7 +179,7 @@ export class QuotationService {
         .from('quotations')
         .select(`
           *,
-          client:clients(id, first_name, last_name, company, email),
+          client:clients(id, first_name, last_name, company, email, phone),
           project:projects(id, name)
         `)
         .eq('id', id)
@@ -158,10 +190,28 @@ export class QuotationService {
         return { success: false, error: error.message }
       }
 
-      // Add placeholder items and attachments until schema is applied
+      // Fetch quotation items
+      const { data: items, error: itemsError } = await (this.supabase as any)
+        .from('quotation_items')
+        .select('*')
+        .eq('quotation_id', id)
+        .order('item_order', { ascending: true })
+
+      if (itemsError) {
+        console.error('Error fetching quotation items:', itemsError)
+      }
+
+      // Map database 'total' column to 'amount' for consistency with interface
+      const mappedItems = (items || []).map((item: any) => ({
+        ...item,
+        amount: item.total,
+        tax_rate: item.tax_rate || 0,
+        tax_amount: item.tax_amount || 0
+      }))
+
       const quotationWithItems = {
         ...data,
-        items: data.items || [],
+        items: mappedItems,
         attachments: []
       }
 
@@ -218,6 +268,14 @@ export class QuotationService {
     try {
       const { items, ...quotationUpdates } = updates
 
+      // Get current session to ensure we have authentication context
+      const { data: sessionData, error: sessionError } = await this.supabase.auth.getSession()
+      if (sessionError || !sessionData.session) {
+        console.error('❌ Session error:', sessionError)
+        return { success: false, error: 'Not authenticated. Please refresh the page and try again.' }
+      }
+      console.log('✅ Session valid:', sessionData.session.user.id)
+
       // Update quotation
       const { error: quotationError } = await (this.supabase as any)
         .from('quotations')
@@ -230,6 +288,42 @@ export class QuotationService {
       if (quotationError) {
         console.error('Error updating quotation:', quotationError)
         return { success: false, error: quotationError.message }
+      }
+
+      // Update line items if provided
+      if (items && items.length > 0) {
+        // Delete existing items
+        const { error: deleteError } = await (this.supabase as any)
+          .from('quotation_items')
+          .delete()
+          .eq('quotation_id', id)
+
+        if (deleteError) {
+          console.error('Error deleting old quotation items:', deleteError)
+          return { success: false, error: 'Failed to update line items' }
+        }
+
+        // Insert new items
+        const itemsToInsert = items.map((item, idx) => ({
+          quotation_id: id,
+          description: item.description,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          total: item.amount, // Map 'amount' to 'total' column
+          item_order: item.item_order || (idx + 1), // Fallback to index-based order
+          discount_rate: item.discount_rate || 0
+        }))
+        
+        console.log('📝 Inserting quotation items:', itemsToInsert)
+
+        const { error: insertError } = await (this.supabase as any)
+          .from('quotation_items')
+          .insert(itemsToInsert)
+
+        if (insertError) {
+          console.error('Error inserting quotation items:', insertError)
+          return { success: false, error: 'Failed to update line items' }
+        }
       }
 
       // Fetch updated quotation
@@ -344,7 +438,7 @@ Thank you for considering our services! Please let me know if you have any quest
 Best regards! 🙏`
   }
 
-  async updateQuotationStatus(id: string, status: 'draft' | 'sent' | 'approved' | 'rejected' | 'expired'): Promise<{ success: boolean; data?: Quotation; error?: string }> {
+  async updateQuotationStatus(id: string, status: 'pending' | 'approved' | 'rejected'): Promise<{ success: boolean; data?: Quotation; error?: string }> {
     try {
       const { data, error } = await (this.supabase as any)
         .from('quotations')
